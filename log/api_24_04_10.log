@@ -1,0 +1,10 @@
+2024-04-10 14:04:52 Line: 11, : Request start: ::1
+2024-04-10 14:04:55 Line: 11, : Request start: ::1
+2024-04-10 14:04:59 Line: 11, : Request start: ::1
+2024-04-10 14:05:02 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 
+2024-04-10 14:05:02 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1
+2024-04-10 14:05:02 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 
+2024-04-10 14:05:02 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1
+2024-04-10 14:05:02 Line: 11, : Request start: ::1
+2024-04-10 14:05:03 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 
+2024-04-10 14:05:03 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1

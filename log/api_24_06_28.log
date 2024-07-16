@@ -1,0 +1,5 @@
+2024-06-28 13:29:33 Line: 11, : Request start: ::1
+2024-06-28 16:29:09 Line: 11, : Request start: ::1
+2024-06-28 16:30:18 Line: 11, : Request start: ::1
+2024-06-28 16:30:18 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 
+2024-06-28 16:30:18 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1

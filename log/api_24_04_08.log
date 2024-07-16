@@ -1,0 +1,124 @@
+2024-04-08 08:28:07 Line: 11, : Request start: ::1
+2024-04-08 08:28:08 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 
+2024-04-08 08:28:08 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1
+2024-04-08 08:28:17 Line: 11, : Request start: ::1
+2024-04-08 08:28:18 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 1
+2024-04-08 08:28:18 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1
+2024-04-08 08:30:53 Line: 11, : Request start: ::1
+2024-04-08 08:30:58 Line: 58, APISubiektGT\SubiektGT\Document->getPdf: Wygenerowano pdf dokumentu: ZK 1/2024
+2024-04-08 08:30:58 Line: 95, APISubiektGT\SubiektGT\document->getpdf: Request finish: ::1
+2024-04-08 08:31:12 Line: 11, : Request start: ::1
+2024-04-08 08:31:13 Line: 58, APISubiektGT\SubiektGT\Document->getPdf: Wygenerowano pdf dokumentu: ZK 1/2024
+2024-04-08 08:31:13 Line: 95, APISubiektGT\SubiektGT\document->getpdf: Request finish: ::1
+2024-04-08 08:31:20 Line: 11, : Request start: ::1
+2024-04-08 08:31:28 Line: 58, APISubiektGT\SubiektGT\Document->getPdf: Wygenerowano pdf dokumentu: ZK 1/2024
+2024-04-08 08:31:28 Line: 95, APISubiektGT\SubiektGT\document->getpdf: Request finish: ::1
+2024-04-08 08:31:36 Line: 11, : Request start: ::1
+2024-04-08 08:31:37 Line: 58, APISubiektGT\SubiektGT\Document->getPdf: Wygenerowano pdf dokumentu: FS 1/2024
+2024-04-08 08:31:37 Line: 95, APISubiektGT\SubiektGT\document->getpdf: Request finish: ::1
+2024-04-08 09:37:21 Line: 11, : Request start: ::1
+2024-04-08 09:37:22 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 09:39:03 Line: 11, : Request start: ::1
+2024-04-08 09:39:04 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 10:00:48 Line: 11, : Request start: ::1
+2024-04-08 10:00:49 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 12:51:35 Line: 11, : Request start: ::1
+2024-04-08 12:51:35 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 12:51:48 Line: 11, : Request start: ::1
+2024-04-08 12:51:48 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 12:52:41 Line: 11, : Request start: ::1
+2024-04-08 12:52:41 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 13:08:27 Line: 11, : Request start: ::1
+2024-04-08 13:08:37 Line: 11, : Request start: ::1
+2024-04-08 13:08:37 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 13:10:28 Line: 11, : Request start: ::1
+2024-04-08 13:10:28 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 13:11:49 Line: 11, : Request start: ::1
+2024-04-08 13:11:49 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 13:14:27 Line: 11, : Request start: ::1
+2024-04-08 13:14:27 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 13:15:07 Line: 11, : Request start: ::1
+2024-04-08 13:15:07 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 13:15:30 Line: 11, : Request start: ::1
+2024-04-08 13:16:38 Line: 11, : Request start: ::1
+2024-04-08 13:16:50 Line: 11, : Request start: ::1
+2024-04-08 13:16:50 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 13:17:08 Line: 11, : Request start: ::1
+2024-04-08 13:17:08 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 13:21:12 Line: 11, : Request start: ::1
+2024-04-08 13:21:12 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 15:06:25 Line: 11, : Request start: ::1
+2024-04-08 15:06:25 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 15:56:55 Line: 11, : Request start: ::1
+2024-04-08 15:56:55 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 15:57:06 Line: 11, : Request start: ::1
+2024-04-08 15:57:07 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 15:57:07 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 5
+2024-04-08 15:57:07 Line: 68, APISubiektGT\SubiektGT\Order->addPosition: Dodaje pozycje o kodzie: MG1
+2024-04-08 15:57:07 Line: 291, APISubiektGT\SubiektGT\Order->add: Utworzono zamówienie od klienta: ZK 2/2024
+2024-04-08 15:57:07 Line: 95, APISubiektGT\SubiektGT\order->add: Request finish: ::1
+2024-04-08 15:58:51 Line: 11, : Request start: ::1
+2024-04-08 15:58:51 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 1
+2024-04-08 15:58:51 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1
+2024-04-08 16:00:32 Line: 11, : Request start: ::1
+2024-04-08 16:00:32 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 6
+2024-04-08 16:00:32 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1
+2024-04-08 16:02:50 Line: 11, : Request start: ::1
+2024-04-08 16:02:51 Line: 154, APISubiektGT\SubiektGT\Order->makeSaleDoc: Utworzono dokument sprzedaży: PA 1/2024
+2024-04-08 16:02:51 Line: 95, APISubiektGT\SubiektGT\order->makesaledoc: Request finish: ::1
+2024-04-08 16:03:16 Line: 11, : Request start: ::1
+2024-04-08 16:04:15 Line: 11, : Request start: ::1
+2024-04-08 16:04:16 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 2
+2024-04-08 16:04:16 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 5
+2024-04-08 16:04:16 Line: 68, APISubiektGT\SubiektGT\Order->addPosition: Dodaje pozycje o kodzie: MG1
+2024-04-08 16:04:16 Line: 291, APISubiektGT\SubiektGT\Order->add: Utworzono zamówienie od klienta: ZK 3/2024
+2024-04-08 16:04:16 Line: 95, APISubiektGT\SubiektGT\order->add: Request finish: ::1
+2024-04-08 16:05:36 Line: 11, : Request start: ::1
+2024-04-08 16:05:36 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 1
+2024-04-08 16:05:36 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 5
+2024-04-08 16:05:36 Line: 68, APISubiektGT\SubiektGT\Order->addPosition: Dodaje pozycje o kodzie: MG1
+2024-04-08 16:05:37 Line: 291, APISubiektGT\SubiektGT\Order->add: Utworzono zamówienie od klienta: ZK 4/2024
+2024-04-08 16:05:37 Line: 95, APISubiektGT\SubiektGT\order->add: Request finish: ::1
+2024-04-08 16:06:40 Line: 11, : Request start: ::1
+2024-04-08 16:06:40 Line: 146, APISubiektGT\SubiektGT\Customer->add: Utworzono klienta od klienta: 9223061811
+2024-04-08 16:06:40 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 3
+2024-04-08 16:06:41 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 5
+2024-04-08 16:06:41 Line: 68, APISubiektGT\SubiektGT\Order->addPosition: Dodaje pozycje o kodzie: MG1
+2024-04-08 16:06:41 Line: 291, APISubiektGT\SubiektGT\Order->add: Utworzono zamówienie od klienta: ZK 5/2024
+2024-04-08 16:06:41 Line: 95, APISubiektGT\SubiektGT\order->add: Request finish: ::1
+2024-04-08 16:07:46 Line: 11, : Request start: ::1
+2024-04-08 16:07:47 Line: 154, APISubiektGT\SubiektGT\Order->makeSaleDoc: Utworzono dokument sprzedaży: FS 3/2024
+2024-04-08 16:07:47 Line: 95, APISubiektGT\SubiektGT\order->makesaledoc: Request finish: ::1
+2024-04-08 16:08:00 Line: 11, : Request start: ::1
+2024-04-08 16:08:00 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 14
+2024-04-08 16:08:00 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1
+2024-04-08 16:08:36 Line: 11, : Request start: ::1
+2024-04-08 16:08:36 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 14
+2024-04-08 16:08:36 Line: 95, APISubiektGT\SubiektGT\document->get: Request finish: ::1
+2024-04-08 16:14:11 Line: 11, : Request start: ::1
+2024-04-08 16:14:11 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 3
+2024-04-08 16:14:11 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 5
+2024-04-08 16:14:11 Line: 68, APISubiektGT\SubiektGT\Order->addPosition: Dodaje pozycje o kodzie: MG1
+2024-04-08 16:14:11 Line: 291, APISubiektGT\SubiektGT\Order->add: Utworzono zamówienie od klienta: ZK 6/2024
+2024-04-08 16:14:11 Line: 95, APISubiektGT\SubiektGT\order->add: Request finish: ::1
+2024-04-08 16:14:49 Line: 11, : Request start: ::1
+2024-04-08 16:14:49 Line: 154, APISubiektGT\SubiektGT\Order->makeSaleDoc: Utworzono dokument sprzedaży: FS 4/2024
+2024-04-08 16:14:49 Line: 95, APISubiektGT\SubiektGT\order->makesaledoc: Request finish: ::1
+2024-04-08 16:15:14 Line: 11, : Request start: ::1
+2024-04-08 16:15:16 Line: 58, APISubiektGT\SubiektGT\Document->getPdf: Wygenerowano pdf dokumentu: FS 4/2024
+2024-04-08 16:15:16 Line: 95, APISubiektGT\SubiektGT\document->getpdf: Request finish: ::1
+2024-04-08 16:17:45 Line: 11, : Request start: ::1
+2024-04-08 16:17:45 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 
+2024-04-08 16:17:45 Line: 95, APISubiektGT\SubiektGT\order->get: Request finish: ::1
+2024-04-08 16:18:10 Line: 11, : Request start: ::1
+2024-04-08 16:18:10 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 17
+2024-04-08 16:18:10 Line: 95, APISubiektGT\SubiektGT\order->get: Request finish: ::1
+2024-04-08 16:25:31 Line: 11, : Request start: ::1
+2024-04-08 16:25:31 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 17
+2024-04-08 16:25:31 Line: 95, APISubiektGT\SubiektGT\order->get: Request finish: ::1
+2024-04-08 16:26:07 Line: 11, : Request start: ::1
+2024-04-08 16:26:07 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 18
+2024-04-08 16:26:07 Line: 95, APISubiektGT\SubiektGT\order->get: Request finish: ::1
+2024-04-08 16:26:29 Line: 11, : Request start: ::1
+2024-04-08 16:26:29 Line: 90, APISubiektGT\SubiektGT\SubiektObj->get: Pobrano dane obiektu id: 21
+2024-04-08 16:26:29 Line: 95, APISubiektGT\SubiektGT\order->get: Request finish: ::1
