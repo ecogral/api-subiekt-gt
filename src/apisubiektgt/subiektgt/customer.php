@@ -145,6 +145,52 @@ class Customer extends SubiektObj
         return $ret_data;
     }
 
+    public static function getAllCustomers($subiektGtCom, $limit = 1000, $offset = 0)
+    {
+        $customers = array();
+        $customersGt = $subiektGtCom->Kontrahenci;
+
+        // Ustawienie filtru, aby pobrać wszystkich kontrahentów
+//        $customersGt->Filtry->Zeruj();
+
+        $count = $customersGt->Liczba();
+        $end = min($offset + $limit, $count);
+
+        for ($i = $offset + 1; $i <= $end; $i++) {
+            $customerGt = $customersGt->Element($i);
+
+            $customer = array(
+                'gt_id' => $customerGt->Identyfikator,
+                'ref_id' => $customerGt->Symbol,
+                'is_company' => !$customerGt->Osoba,
+                'company_name' => $customerGt->NazwaPelna,
+                'tax_id' => $customerGt->NIP,
+                'firstname' => $customerGt->OsobaImie,
+                'lastname' => $customerGt->OsobaNazwisko,
+                'email' => $customerGt->Email,
+                'city' => $customerGt->Miejscowosc,
+                'post_code' => $customerGt->KodPocztowy,
+                'address' => $customerGt->Ulica,
+                'address_no' => $customerGt->NrDomu,
+                'caretaker' => $customerGt->CrmOsobaKontaktowa
+            );
+
+            if ($customerGt->Telefony->Liczba > 0) {
+                $phoneGt = $customerGt->Telefony->Element(1);
+                $customer['phone'] = $phoneGt->Numer;
+            }
+
+            $customers[] = $customer;
+        }
+
+        return array(
+            'customers' => $customers,
+            'total_count' => $count,
+            'limit' => $limit,
+            'offset' => $offset
+        );
+    }
+
     public function add()
     {
         $this->customerGt = $this->subiektGt->Kontrahenci->Dodaj();

@@ -76,7 +76,15 @@ try {
     $result = false;
 
     // Dodaj ten fragment w miejscu, gdzie przetwarzasz żądania API
-    if ($run[0] == 'Product' && $method == 'getStocks') {
+    if ($run[0] == 'Customer' && $method == 'getAllCustomers') {
+        $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 1000;
+        $offset = isset($json_request['data']['offset']) ? intval($json_request['data']['offset']) : 0;
+
+        $result = $class::getAllCustomers($subiektGtCom, $limit, $offset);
+
+        $json_response['state'] = 'success';
+        $json_response['data'] = $result;
+    } elseif ($run[0] == 'Product' && $method == 'getStocks') {
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
         $result = $obj->getStocks();
