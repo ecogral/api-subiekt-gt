@@ -280,40 +280,49 @@ class Order extends SubiektObj
             throw new Exception('Brak danych "products" dla zamówienia!', 1);
         }
 
-        $this->orderGt = $this->subiektGt->SuDokumentyManager->DodajZK();
+        
+        $taxId = $this->customer['tax_id'] ?? '';
+        if (empty($taxId)) {
+            throw new Exception('Brak NIP-u w danych klienta!', 1);
+        }
 
+        
         $customer = new Customer($this->subiektGt, $this->customer);
+
+        
         if (!$customer->isExists()) {
+            Logger::getInstance()->log('api', 'Tworzenie nowego kontrahenta o NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
             $customer->add();
         }
 
+        
         $cust_data = $customer->get();
+
+        
+        $this->orderGt = $this->subiektGt->SuDokumentyManager->DodajZK();
         $this->orderGt->KontrahentId = intval($cust_data['gt_id']);
 
+        
         foreach ($this->products as $p) {
-            $add_postition = false;
-            if (!($add_postition = $this->addPosition($p))
-                && $this->create_product_if_not_exists == false) {
+            $add_position = $this->addPosition($p);
+            if (!$add_position) {
                 throw new Exception('Nie odnaleziono towaru o podanym kodzie: ' . $p['code'], 1);
-            }
-
-            if (!$add_postition && $this->create_product_if_not_exists == true) {
-                $p_obj = new Product($this->subiektGt, $p);
-                $p_obj->add();
-                $this->addPosition($p);
             }
         }
 
+        
         $this->orderGt->Przelicz();
         $this->amount = $this->orderGt->WartoscBrutto;
         $this->orderGt->Wystawil = Helper::toWin($this->cfg->getIdPerson());
         $this->setGtObject();
         $this->orderGt->Zapisz();
-        Logger::getInstance()->log('api', 'Utworzono zamówienie od klienta: ' . $this->orderGt->NumerPelny, __CLASS__ . '->' . __FUNCTION__, __LINE__);
-        return array(
+
+        Logger::getInstance()->log('api', 'Utworzono zamówienie dla kontrahenta o NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+        return [
             'order_ref' => $this->orderGt->NumerPelny,
-            'order_amount' => $this->getOrderAmountById($this->orderGt->Identyfikator)
-        );
+            'order_amount' => $this->amount
+        ];
     }
 
     public function update()

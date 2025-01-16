@@ -26,37 +26,34 @@ class Customer extends SubiektObj
     protected $is_company = false;
 
 
-    public function __construct($subiektGt, $customerDetail = array())
+    public function __construct($subiektGt, $customerDetail = [])
     {
         parent::__construct($subiektGt, $customerDetail);
         $this->excludeAttr('customerGt');
 
-        // NIP-e spacji "- "
-        $this->tax_id = preg_replace('/([ ])/', '', $this->tax_id);
+        // czyszczenie nipu ze znaków
+        $this->tax_id = preg_replace('/([ \-])/', '', $this->tax_id);
 
-        //Wyszukanie po symbolu
-        if ($this->ref_id && $subiektGt->Kontrahenci->Istnieje($this->ref_id)) {
-            $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->ref_id);
-            $this->getGtObject();
-            $this->is_exists = true;
-        }
-
-        //Wyszukanie po wprowadzonym NIP-e
-        if (!$this->customerGt && $this->is_company && $subiektGt->Kontrahenci->Istnieje($this->tax_id)) {
+        // szuka po Nipie
+        if ($this->is_company && $this->tax_id != '' && $subiektGt->Kontrahenci->Istnieje($this->tax_id)) {
             $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->tax_id);
             $this->getGtObject();
             $this->is_exists = true;
         }
 
-        //Wyszukanie po NIP-e wycięcie znaków "-"
-        $this->tax_id = preg_replace('/([\-])/', '', $this->tax_id);
+        // jesli nie znajduje po nipie to szukaj po ref_id
+        if (!$this->customerGt && $this->ref_id && $subiektGt->Kontrahenci->Istnieje($this->ref_id)) {
+            $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->ref_id);
+            $this->getGtObject();
+            $this->is_exists = true;
+        }
 
-        if (!$this->customerGt && $this->is_company && $this->tax_id != '') {
-            if ($subiektGt->Kontrahenci->Istnieje($this->tax_id)) {
-                $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->tax_id);
-                $this->getGtObject();
-                $this->is_exists = true;
-            }
+        // Jesli nie ma to tworzy
+        if (!$this->customerGt) {
+            $this->customerGt = $subiektGt->Kontrahenci->Dodaj();
+            $this->setGtObject();
+            $this->customerGt->Zapisz();
+            $this->is_exists = true;
         }
     }
 
