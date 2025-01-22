@@ -271,59 +271,68 @@ class Order extends SubiektObj
 
 
     public function add()
-    {
-        $this->customer = isset($this->orderDetail['customer']) ? $this->orderDetail['customer'] : false;
-        if (!$this->customer) {
-            throw new Exception('Brak danych "customer" dla zamówienia!', 1);
-        }
-        if (!$this->products) {
-            throw new Exception('Brak danych "products" dla zamówienia!', 1);
-        }
-
-        
-        $taxId = $this->customer['tax_id'] ?? '';
-        if (empty($taxId)) {
-            throw new Exception('Brak NIP-u w danych klienta!', 1);
-        }
-
-        
-        $customer = new Customer($this->subiektGt, $this->customer);
-
-        
-        if (!$customer->isExists()) {
-            Logger::getInstance()->log('api', 'Tworzenie nowego kontrahenta o NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
-            $customer->add();
-        }
-
-        
-        $cust_data = $customer->get();
-
-        
-        $this->orderGt = $this->subiektGt->SuDokumentyManager->DodajZK();
-        $this->orderGt->KontrahentId = intval($cust_data['gt_id']);
-
-        
-        foreach ($this->products as $p) {
-            $add_position = $this->addPosition($p);
-            if (!$add_position) {
-                throw new Exception('Nie odnaleziono towaru o podanym kodzie: ' . $p['code'], 1);
-            }
-        }
-
-        
-        $this->orderGt->Przelicz();
-        $this->amount = $this->orderGt->WartoscBrutto;
-        $this->orderGt->Wystawil = Helper::toWin($this->cfg->getIdPerson());
-        $this->setGtObject();
-        $this->orderGt->Zapisz();
-
-        Logger::getInstance()->log('api', 'Utworzono zamówienie dla kontrahenta o NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
-
-        return [
-            'order_ref' => $this->orderGt->NumerPelny,
-            'order_amount' => $this->amount
-        ];
+{
+    $this->customer = isset($this->orderDetail['customer']) ? $this->orderDetail['customer'] : false;
+    if (!$this->customer) {
+        throw new Exception('Brak danych "customer" dla zamówienia!', 1);
     }
+    if (!$this->products) {
+        throw new Exception('Brak danych "products" dla zamówienia!', 1);
+    }
+
+    $taxId = $this->customer['tax_id'] ?? '';
+
+    // Logowanie przed przetwarzaniem NIP
+    Logger::getInstance()->log('api', 'Otrzymany NIP przed przetwarzaniem: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+    if (empty($taxId)) {
+        throw new Exception('Brak NIP-u w danych klienta!', 1);
+    }
+
+    // Tworzenie nowego kontrahenta
+    $customer = new Customer($this->subiektGt, $this->customer);
+
+    Logger::getInstance()->log('api', 'Kontrahent po inicjalizacji: ' . json_encode($this->customer), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+    if (!$customer->isExists()) {
+        Logger::getInstance()->log('api', 'Tworzenie nowego kontrahenta o NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        $customer->add();
+
+        // Logowanie po utworzeniu nowego kontrahenta
+        Logger::getInstance()->log('api', 'Nowy kontrahent utworzony z NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+        $customer = new Customer($this->subiektGt, $this->customer);
+        
+    }
+
+    $cust_data = $customer->get();
+    Logger::getInstance()->log('api', 'Kontrahent o NIP: ' . $cust_data['tax_id'] . ' istnieje w systemie.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+    // Tworzenie zamówienia
+    $this->orderGt = $this->subiektGt->SuDokumentyManager->DodajZK();
+    $this->orderGt->KontrahentId = intval($cust_data['gt_id']);
+
+    foreach ($this->products as $p) {
+        $add_position = $this->addPosition($p);
+        if (!$add_position) {
+            throw new Exception('Nie odnaleziono towaru o podanym kodzie: ' . $p['code'], 1);
+        }
+    }
+
+    $this->orderGt->Przelicz();
+    $this->amount = $this->orderGt->WartoscBrutto;
+    $this->orderGt->Wystawil = Helper::toWin($this->cfg->getIdPerson());
+    $this->setGtObject();
+    $this->orderGt->Zapisz();
+
+    Logger::getInstance()->log('api', 'Utworzono zamówienie dla kontrahenta o NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+    return [
+        'order_ref' => $this->orderGt->NumerPelny,
+        'order_amount' => $this->amount
+    ];
+}
+
 
     public function update()
     {

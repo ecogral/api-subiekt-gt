@@ -29,31 +29,68 @@ class Customer extends SubiektObj
     public function __construct($subiektGt, $customerDetail = [])
     {
         parent::__construct($subiektGt, $customerDetail);
+        Logger::getInstance()->log('debug', 'Tworzenie obiektu klienta: ' . json_encode($customerDetail), __CLASS__ . '->' . __FUNCTION__, __LINE__);
         $this->excludeAttr('customerGt');
 
         // czyszczenie nipu ze znaków
-        $this->tax_id = preg_replace('/([ \-])/', '', $this->tax_id);
-
-        // szuka po Nipie
-        if ($this->is_company && $this->tax_id != '' && $subiektGt->Kontrahenci->Istnieje($this->tax_id)) {
-            $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->tax_id);
-            $this->getGtObject();
-            $this->is_exists = true;
+        $clean_tax_id = preg_replace('/([  \-])/', '', $this->tax_id);
+        // usuń kod kraju jeśli istnieje (np. PL)
+        $clean_tax_id_no_country = preg_replace('/^[A-Z]{2}/', '', $clean_tax_id);
+        // wersja z możliwą spacją po kodzie kraju (np. "PL 1234567890")
+        $tax_id_with_space = preg_replace('/^([A-Z]{2})/', '$1 ', $clean_tax_id);
+        
+        // Próby znalezienia klienta po różnych wariantach NIPu
+        if ($this->is_company && $clean_tax_id_no_country != '') {
+            if ($subiektGt->Kontrahenci->Istnieje($clean_tax_id_no_country)) {
+                $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($clean_tax_id_no_country);
+                $this->getGtObject();
+                $this->is_exists = true;
+            } elseif ($subiektGt->Kontrahenci->Istnieje($clean_tax_id)) {
+                $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($clean_tax_id);
+                $this->getGtObject();
+                $this->is_exists = true;
+            } elseif ($subiektGt->Kontrahenci->Istnieje($tax_id_with_space)) {
+                $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($tax_id_with_space);
+                $this->getGtObject();
+                $this->is_exists = true;
+            }
         }
 
-        // jesli nie znajduje po nipie to szukaj po ref_id
-        if (!$this->customerGt && $this->ref_id && $subiektGt->Kontrahenci->Istnieje($this->ref_id)) {
-            $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->ref_id);
-            $this->getGtObject();
-            $this->is_exists = true;
-        }
+        // szukanie klienta po ref_id narazie rezygnujemy z tego
+        // if (!$this->customerGt && $this->ref_id && $subiektGt->Kontrahenci->Istnieje($this->ref_id)) {
+        //     $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->ref_id);
+        //     $this->getGtObject();
+        //     $this->is_exists = true;
+        // }
 
         // Jesli nie ma to tworzy
         if (!$this->customerGt) {
             $this->customerGt = $subiektGt->Kontrahenci->Dodaj();
             $this->setGtObject();
-            $this->customerGt->Zapisz();
+            
+            
+            if (!$this->customerGt->Zapisz()) {
+                throw new Exception('Nie udało się zapisać klienta w Subiekcie GT');
+            }
+            
+            
+            $saved_nip = $this->customerGt->NIP;
+            if (empty($saved_nip)) {
+                throw new Exception('Nie udało się zapisać NIPu klienta');
+            }
+            
+            $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($saved_nip);
+            if (!$this->customerGt) {
+                throw new Exception('Nie udało się wczytać zapisanego klienta');
+            }
+            
+            $this->getGtObject();
             $this->is_exists = true;
+
+            Logger::getInstance()->log('debug', 'Dodano nowego klienta do Subiekta: ' . json_encode([
+                'NIP' => $saved_nip,
+                'Symbol' => $this->customerGt->Symbol
+            ]), __CLASS__ . '->' . __FUNCTION__, __LINE__);
         }
     }
 
@@ -65,9 +102,10 @@ class Customer extends SubiektObj
                 throw new Exception('Nie można utworzyć klienta brak jego nazwy!');
             }
             $this->customerGt->NazwaPelna = $this->company_name;
-            $this->customerGt->Nazwa = mb_substr($this->company_name, 0, 40);
+            $this->customerGt->Nazwa = $this->company_name;
             $this->customerGt->Osoba = 0;
-            $this->customerGt->NIP = substr(sprintf('%s', $this->tax_id), 0, 17);
+            $this->customerGt->NIP = $this->tax_id;
+            
             $this->customerGt->Symbol = $this->customerGt->NIP;
 
         } else {
@@ -75,13 +113,15 @@ class Customer extends SubiektObj
             $this->customerGt->OsobaImie = substr($this->firstname, 0, 20);
             $this->customerGt->OsobaNazwisko = substr($this->lastname, 0, 50);
             $this->customerGt->NazwaPelna = $this->firstname . ' ' . $this->lastname;
+            $this->customerGt->NIP = $this->tax_id;
+            $this->customerGt->Symbol = $this->customerGt->NIP;
         }
         $this->customerGt->Email = $this->email;
         $this->customerGt->Miejscowosc = $this->city;
         $this->customerGt->KodPocztowy = substr($this->post_code, 0, 6);
         $this->customerGt->Ulica = substr($this->address, 0, 60);
         $this->customerGt->NrDomu = substr($this->address_no, 0, 10);
-        $this->customerGt->Typ = 2;
+        
 
         if ($this->phone) {
             if ($this->customerGt->Telefony->Liczba == 0) {
@@ -127,6 +167,7 @@ class Customer extends SubiektObj
             return false;
         }
         $data = $data[0];
+        Logger::getInstance()->log('debug', 'Pobrano dane klienta z Subiektu: ' . json_encode($data), __CLASS__ . '->' . __FUNCTION__, __LINE__);
         $ret_data = array(
             'ref_id' => $data['kh_Symbol'],
             'company_name' => $data['Firma'],
@@ -212,6 +253,29 @@ class Customer extends SubiektObj
     public function getGt()
     {
         return $this->customerGt;
+    }
+
+    public function get()
+    {
+        if (!$this->customerGt) {
+            return false;
+        }
+        
+        return array(
+            'gt_id' => $this->gt_id,
+            'ref_id' => $this->ref_id,
+            'company_name' => $this->company_name,
+            'tax_id' => $this->tax_id,
+            'firstname' => $this->firstname,
+            'lastname' => $this->lastname,
+            'email' => $this->email,
+            'city' => $this->city,
+            'post_code' => $this->post_code,
+            'address' => $this->address,
+            'address_no' => $this->address_no,
+            'phone' => $this->phone,
+            'is_company' => $this->is_company
+        );
     }
 
 }
