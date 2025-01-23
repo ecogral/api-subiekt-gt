@@ -102,7 +102,7 @@ class Customer extends SubiektObj
                 throw new Exception('Nie można utworzyć klienta brak jego nazwy!');
             }
             $this->customerGt->NazwaPelna = $this->company_name;
-            $this->customerGt->Nazwa = $this->company_name;
+            $this->customerGt->Nazwa = mb_substr($this->company_name, 0, 40);
             $this->customerGt->Osoba = 0;
             $this->customerGt->NIP = $this->tax_id;
             
