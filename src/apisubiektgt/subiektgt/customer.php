@@ -57,11 +57,11 @@ class Customer extends SubiektObj
         }
 
         // szukanie klienta po ref_id narazie rezygnujemy z tego
-        // if (!$this->customerGt && $this->ref_id && $subiektGt->Kontrahenci->Istnieje($this->ref_id)) {
-        //     $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->ref_id);
-        //     $this->getGtObject();
-        //     $this->is_exists = true;
-        // }
+        if (!$this->customerGt && $this->ref_id && $subiektGt->Kontrahenci->Istnieje($this->ref_id)) {
+            $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->ref_id);
+            $this->getGtObject();
+            $this->is_exists = true;
+        }
 
         // Jesli nie ma to tworzy
         if (!$this->customerGt) {

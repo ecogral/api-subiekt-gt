@@ -38,6 +38,7 @@ class Product extends SubiektObj
     protected $products_qtys_by_supplier = 0;
     protected $group_id = '';
     protected $off_prefix = 0;
+    protected $blocked = '';
 
     public function __construct($subiektGt, $productDetail = array())
     {
@@ -167,6 +168,7 @@ class Product extends SubiektObj
             return false;
         }
         $this->gt_id = $this->productGt->Identyfikator;
+        
         $this->name = $this->productGt->Nazwa;
         $this->description = $this->productGt->Opis;
         $this->code = $this->productGt->Symbol;
@@ -179,6 +181,11 @@ class Product extends SubiektObj
         $this->intrastat_code = $this->productGt->IntrastatKodWgCN;
         $this->intrastat_country_id = $this->productGt->IntrastatKrajPochodzeniaId;
         $this->ean = $this->productGt->KodyKreskowe->Podstawowy;
+        
+        // Pobieranie informacji o zablokowaniu bezpośrednio z bazy SQL
+        $sql = "SELECT tw_Zablokowany FROM vwTowar WHERE tw_Id = {$this->gt_id}";
+        $data = MSSql::getInstance()->query($sql);
+        $this->blocked = isset($data[0]['tw_Zablokowany']) ? $data[0]['tw_Zablokowany'] : '';
 
         if ($this->productGt->Ceny->Liczba > 0) {
             $prices = $this->productGt->Ceny->Element(1);
@@ -256,7 +263,7 @@ class Product extends SubiektObj
         foreach ($this->products_qtys as $pq) {
             $code = $pq['code'];
             $id_store = isset($pq['id_store']) ? intval($pq['id_store']) : 0;
-            $sql = 'SELECT tw_Id as id ,tw_Symbol as code, Rezerwacja as reservation , Dostepne as available, Stan as on_store, Stan-Rezerwacja as on_store_available   FROM vwTowar LEFT JOIN 
+            $sql = 'SELECT tw_Id as id ,tw_Symbol as code, tw_Zablokowany as blocked, Rezerwacja as reservation , Dostepne as available, Stan as on_store, Stan-Rezerwacja as on_store_available   FROM vwTowar LEFT JOIN 
 			tw_KodKreskowy ON kk_IdTowar = tw_Id 
 			WHERE st_MagId = ' . $id_store . ' AND tw_Symbol = \'' . $code . '\'';
 
