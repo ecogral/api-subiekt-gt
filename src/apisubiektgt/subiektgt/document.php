@@ -194,6 +194,95 @@ class Document extends SubiektObj
     {
         return $this->documentGt;
     }
+
+    public function getUnpaidInvoices()
+    {
+        try {
+            $sql = "SELECT 
+                    d.dok_Id,
+                    d.dok_NrPelny,
+                    d.dok_WartBrutto,
+                    d.dok_TerminRealizacji,
+                    d.dok_DataWyst as date_issue,
+                    d.dok_PlatTermin as payment_term,
+                    d.dok_KwDoZaplaty as amount_to_pay,
+                    d.dok_Status,
+                    d.dok_StatusKsieg as accounting_state,
+                    k.kh_Symbol as ref_id,
+                    k.adr_NazwaPelna as company_name,
+                    k.adr_NIP as tax_id,
+                    k.adr_Adres as address,
+                    k.adr_Kod as post_code,
+                    k.adr_Miejscowosc as city,
+                    k.kh_EMail as email,
+                    k.adr_Telefon as phone
+                FROM dok__Dokument d
+                LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                WHERE d.dok_Typ = 2 
+                AND d.dok_StatusKsieg = 0
+                AND d.dok_Status >= 0
+                AND d.dok_KwDoZaplaty > 0
+                AND d.dok_Rozliczony = 0
+                AND k.adr_NIP IS NOT NULL 
+                AND k.adr_NIP <> ''";
+
+            $data = MSSql::getInstance()->query($sql);
+            $result = [];
+
+            foreach ($data as $row) {
+                // Pobierz pozycje dla każdego dokumentu
+                $positions_sql = "SELECT 
+                    p.ob_Id,
+                    p.ob_Ilosc as quantity,
+                    p.ob_CenaNetto as price_net,
+                    p.ob_CenaBrutto as price_brutto,
+                    p.ob_WartNetto as gross_netto,
+                    p.ob_WartBrutto as gross_brutto,
+                    p.ob_VatProc as vat_rate,
+                    t.tw_Symbol as code,
+                    t.tw_Nazwa as name,
+                    t.tw_Id as id,
+                    t.tw_Zablokowany as blocked,
+                    t.Rezerwacja as reservation,
+                    t.Dostepne as available,
+                    t.Stan as on_store,
+                    t.Stan-t.Rezerwacja as on_store_available
+                FROM dok_Pozycja p
+                LEFT JOIN vwTowar t ON t.tw_Id = p.ob_TowId
+                WHERE p.ob_DokHanId = {$row['dok_Id']}";
+                
+                $positions = MSSql::getInstance()->query($positions_sql);
+
+                $result[] = [
+                    'doc_ref' => $row['dok_NrPelny'],
+                    'amount' => $row['dok_WartBrutto'],
+                    'amount_to_pay' => $row['amount_to_pay'],
+                    'date_issue' => $row['date_issue'],
+                    'payment_term' => $row['payment_term'],
+                    'date_of_delivery' => $row['dok_TerminRealizacji'],
+                    'status' => $row['dok_Status'],
+                    'accounting_state' => $row['accounting_state'],
+                    'customer' => [
+                        'ref_id' => $row['ref_id'],
+                        'company_name' => $row['company_name'],
+                        'tax_id' => $row['tax_id'],
+                        'address' => $row['address'],
+                        'post_code' => $row['post_code'],
+                        'city' => $row['city'],
+                        'email' => $row['email'],
+                        'phone' => $row['phone']
+                    ],
+                    'positions' => $positions
+                ];
+            }
+
+            Logger::getInstance()->log('api', 'Pobrano listę nieopłaconych faktur', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'success', 'data' => $result];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania nieopłaconych faktur: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
+    }
 }
 
 ?>
