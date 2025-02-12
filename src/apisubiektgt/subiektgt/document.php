@@ -222,7 +222,75 @@ class Document extends SubiektObj
                 AND d.dok_StatusKsieg = 0
                 AND d.dok_Status >= 0
                 AND d.dok_KwDoZaplaty > 0
-                AND d.dok_Rozliczony = 0
+                AND d.dok_Rozliczony = 0";
+
+            $data = MSSql::getInstance()->query($sql);
+            $result = [];
+
+            foreach ($data as $row) {
+                $result[] = [
+                    'doc_ref' => $row['dok_NrPelny'],
+                    'amount' => $row['dok_WartBrutto'],
+                    'amount_to_pay' => $row['amount_to_pay'],
+                    'date_issue' => $row['date_issue'],
+                    'payment_term' => $row['payment_term'],
+                    'date_of_delivery' => $row['dok_TerminRealizacji'],
+                    'status' => $row['dok_Status'],
+                    'accounting_state' => $row['accounting_state'],
+                    'customer' => [
+                        'ref_id' => $row['ref_id'],
+                        'company_name' => $row['company_name'],
+                        'tax_id' => $row['tax_id'],
+                        'address' => $row['address'],
+                        'post_code' => $row['post_code'],
+                        'city' => $row['city'],
+                        'email' => $row['email'],
+                        'phone' => $row['phone']
+                    ]
+                ];
+            }
+
+            Logger::getInstance()->log('api', 'Pobrano listę nieopłaconych faktur', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'success', 'data' => $result];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania nieopłaconych faktur: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
+    }
+
+    public function getUnpaidInvoicesFromSettlements()
+    {
+        try {
+            $sql = "SELECT 
+                    Bk.nzf_Id,
+                    Bk.nzf_NumerPelny,
+                    Bk.nzf_Data as date_issue,
+                    Bk.nzf_TerminPlatnosci as payment_term,
+                    Bk.DniSpoznienia as days_overdue,
+                    Bk.nzf_DataOstatniejSplaty as last_payment_date,
+                    Bk.naleznosc as amount_total,
+                    Bk.NalPierwotna as amount_original,
+                    Bk.zobowiazanie as amount_liability,
+                    k.kh_Symbol as ref_id,
+                    k.adr_NazwaPelna as company_name,
+                    k.adr_NIP as tax_id,
+                    k.adr_Adres as address,
+                    k.adr_Kod as post_code,
+                    k.adr_Miejscowosc as city,
+                    k.kh_EMail as email,
+                    k.adr_Telefon as phone,
+                    Flagi.flg_Text as flag_name,
+                    FlagiWartosci.flw_Komentarz as flag_comment,
+                    d.dok_Id
+                FROM vwFinanseRozrachunkiWgDokumentow Bk
+                LEFT JOIN dok__Dokument d ON Bk.nzf_IdDokumentAuto = d.dok_Id
+                LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                LEFT JOIN fl_Wartosc FlagiWartosci ON Bk.nzf_Id = FlagiWartosci.flw_IdObiektu 
+                    AND FlagiWartosci.flw_IdGrupyFlag = 1
+                LEFT JOIN fl__Flagi Flagi ON FlagiWartosci.flw_IdFlagi = Flagi.flg_Id
+                WHERE Bk.Rozliczenie IN (0, 1)
+                AND Bk.nzf_Typ = 39
+                AND Bk.naleznosc > 0
                 AND k.adr_NIP IS NOT NULL 
                 AND k.adr_NIP <> ''";
 
@@ -230,7 +298,6 @@ class Document extends SubiektObj
             $result = [];
 
             foreach ($data as $row) {
-                // Pobierz pozycje dla każdego dokumentu
                 $positions_sql = "SELECT 
                     p.ob_Id,
                     p.ob_Ilosc as quantity,
@@ -254,14 +321,16 @@ class Document extends SubiektObj
                 $positions = MSSql::getInstance()->query($positions_sql);
 
                 $result[] = [
-                    'doc_ref' => $row['dok_NrPelny'],
-                    'amount' => $row['dok_WartBrutto'],
-                    'amount_to_pay' => $row['amount_to_pay'],
+                    'doc_ref' => $row['nzf_NumerPelny'],
                     'date_issue' => $row['date_issue'],
                     'payment_term' => $row['payment_term'],
-                    'date_of_delivery' => $row['dok_TerminRealizacji'],
-                    'status' => $row['dok_Status'],
-                    'accounting_state' => $row['accounting_state'],
+                    'days_overdue' => $row['days_overdue'],
+                    'last_payment_date' => $row['last_payment_date'],
+                    'amount' => [
+                        'total' => $row['amount_total'],
+                        'original' => $row['amount_original'],
+                        'liability' => $row['amount_liability']
+                    ],
                     'customer' => [
                         'ref_id' => $row['ref_id'],
                         'company_name' => $row['company_name'],
@@ -272,14 +341,18 @@ class Document extends SubiektObj
                         'email' => $row['email'],
                         'phone' => $row['phone']
                     ],
+                    'flag' => [
+                        'name' => $row['flag_name'],
+                        'comment' => $row['flag_comment']
+                    ],
                     'positions' => $positions
                 ];
             }
 
-            Logger::getInstance()->log('api', 'Pobrano listę nieopłaconych faktur', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', 'Pobrano listę nieopłaconych należności', __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return ['state' => 'success', 'data' => $result];
         } catch (Exception $e) {
-            Logger::getInstance()->log('api', 'Błąd podczas pobierania nieopłaconych faktur: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania nieopłaconych należności: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return ['state' => 'fail', 'message' => $e->getMessage()];
         }
     }
