@@ -278,6 +278,153 @@ class Customer extends SubiektObj
         );
     }
 
+    public function getCustomerOrders($tax_id = null)
+    {
+        try {
+            Logger::getInstance()->log('api', 'Rozpoczęcie getCustomerOrders z NIP: ' . ($tax_id ?? $this->tax_id), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            // Jeśli nie podano NIPu, używamy NIPu z aktualnego obiektu
+            $search_tax_id = $tax_id ?? $this->tax_id;
+            
+            if (empty($search_tax_id)) {
+                Logger::getInstance()->log('api', 'Brak NIPu do wyszukania klienta', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                return [];
+            }
+
+            Logger::getInstance()->log('api', 'Próba wyszukania klienta po NIP: ' . $search_tax_id, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            // Najpierw szukamy klienta po NIPie
+            $sql = "SELECT kh_Id as gt_id, kh_NrIdent as customer_ident 
+                    FROM vwKlienci 
+                    WHERE adr_NIP = '{$search_tax_id}'";
+            
+            Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $customer_data = MSSql::getInstance()->query($sql);
+            
+            Logger::getInstance()->log('api', 'Wynik zapytania SQL: ' . json_encode($customer_data), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            if (empty($customer_data)) {
+                Logger::getInstance()->log('api', 'Nie znaleziono klienta o NIP: ' . $search_tax_id, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                return [];
+            }
+
+            $customer_ident = $customer_data[0]['customer_ident'];
+            Logger::getInstance()->log('api', 'Znaleziono identyfikator klienta: ' . $customer_ident, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            // Teraz pobieramy dokumenty typu ZK (16) dla znalezionego klienta
+            $sql = "SELECT 
+                        dok_NrPelny as order_ref,
+                        dok_DataWyst as issue_date,
+                        dok_WartNetto as net_value,
+                        dok_WartVat as vat_value,
+                        dok_WartBrutto as gross_value,
+                        dok_Status as status
+                    FROM dok__Dokument 
+                    WHERE dok_NrIdentNabywcy = '{$customer_ident}'
+                    AND dok_Typ = 16
+                    ORDER BY dok_DataWyst DESC";
+            
+            Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po dokumenty: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $data = MSSql::getInstance()->query($sql);
+            $orders = [];
+            
+            foreach ($data as $row) {
+                $orders[] = [
+                    'order_ref' => $row['order_ref'],
+                    'issue_date' => $row['issue_date'],
+                    'net_value' => $row['net_value'],
+                    'vat_value' => $row['vat_value'],
+                    'gross_value' => $row['gross_value'],
+                    'status' => $row['status']
+                ];
+            }
+            
+            Logger::getInstance()->log('api', 'Znaleziono dokumentów: ' . count($orders), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', 'Lista dokumentów: ' . json_encode($orders), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            return $orders;
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania dokumentów: ' . $e->getMessage() . "\n" . $e->getTraceAsString(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return [];
+        }
+    }
+
+    public static function getCustomerZKDocuments($subiektGtCom, $tax_id)
+    {
+        try {
+            Logger::getInstance()->log('api', 'Rozpoczęcie getCustomerZKDocuments dla NIP: ' . $tax_id, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            if (empty($tax_id)) {
+                Logger::getInstance()->log('api', 'Brak NIPu do wyszukania klienta', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                return [];
+            }
+
+            // Najpierw szukamy klienta po NIPie
+            $sql = "SELECT kh_Id as gt_id, kh_Symbol as customer_ident, adr_NIP as nip 
+                    FROM vwKlienci 
+                    WHERE adr_NIP = '{$tax_id}'";
+            
+            Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po klienta: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $customer_data = MSSql::getInstance()->query($sql);
+            
+            Logger::getInstance()->log('api', 'Wynik zapytania po klienta: ' . json_encode($customer_data), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            if (empty($customer_data)) {
+                Logger::getInstance()->log('api', 'Nie znaleziono klienta o NIP: ' . $tax_id, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                return [];
+            }
+
+            $customer_ident = $customer_data[0]['customer_ident'];
+            Logger::getInstance()->log('api', 'Znaleziono identyfikator klienta: ' . $customer_ident, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            // Pobieramy dokumenty typu ZK (16) dla znalezionego klienta
+            $sql = "SELECT 
+                        dok_NrPelny as order_ref,
+                        dok_DataWyst as issue_date,
+                        dok_WartNetto as net_value,
+                        dok_WartVat as vat_value,
+                        dok_WartBrutto as gross_value,
+                        dok_Status as status,
+                        dok_Typ as doc_type,
+                        dok_NrIdentNabywcy as buyer_ident
+                    FROM dok__Dokument 
+                    WHERE (dok_NrIdentNabywcy = '{$customer_ident}' OR dok_PlatnikId = {$customer_data[0]['gt_id']})
+                    AND dok_Typ = 16
+                    ORDER BY dok_DataWyst DESC";
+            
+            Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po dokumenty: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $data = MSSql::getInstance()->query($sql);
+            
+            Logger::getInstance()->log('api', 'Wynik zapytania po dokumenty: ' . json_encode($data), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $documents = [];
+            
+            foreach ($data as $row) {
+                $documents[] = [
+                    'order_ref' => $row['order_ref'],
+                    'issue_date' => $row['issue_date'],
+                    'net_value' => $row['net_value'],
+                    'vat_value' => $row['vat_value'],
+                    'gross_value' => $row['gross_value'],
+                    'status' => $row['status'],
+                    'doc_type' => $row['doc_type'],
+                    'buyer_ident' => $row['buyer_ident']
+                ];
+            }
+            
+            Logger::getInstance()->log('api', 'Liczba znalezionych dokumentów: ' . count($documents), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            return $documents;
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania dokumentów: ' . $e->getMessage() . "\n" . $e->getTraceAsString(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return [];
+        }
+    }
+
 }
 
 ?>

@@ -84,6 +84,15 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
+    } elseif ($run[0] == 'Customer' && $method == 'getCustomerZKDocuments') {
+        if (!isset($json_request['data']['tax_id'])) {
+            throw new Exception('Brak wymaganego parametru tax_id');
+        }
+        
+        $result = $class::getCustomerZKDocuments($subiektGtCom, $json_request['data']['tax_id']);
+
+        $json_response['state'] = 'success';
+        $json_response['data'] = $result;
     } elseif ($run[0] == 'Product' && $method == 'getStocks') {
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
