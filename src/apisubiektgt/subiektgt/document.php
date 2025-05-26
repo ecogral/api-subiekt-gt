@@ -15,7 +15,6 @@ class Document extends SubiektObj
 {
     protected $documentGt;
     protected $products = false;
-    protected $fiscal_state = false;
     protected $accounting_state = false;
     protected $reference;
     protected $comments;
@@ -67,7 +66,6 @@ class Document extends SubiektObj
                 'file_name' => mb_ereg_replace("[ /]", "_", $this->doc_ref . '.pdf'),
                 'state' => $this->state,
                 'accounting_state' => $this->accounting_state,
-                'fiscal_state' => $this->fiscal_state,
                 'doc_type' => $this->doc_type,
                 'pdf_file' => base64_encode($pdf_file));
         }
@@ -82,7 +80,6 @@ class Document extends SubiektObj
             'doc_type' => $this->doc_type,
             'state' => $this->state,
             'accounting_state' => $this->accounting_state,
-            'fiscal_state' => $this->fiscal_state,
             'order_processing' => $this->order_processing,
             'id_flag' => $this->id_flag,
             'flag_name' => $this->flag_name,
@@ -97,7 +94,6 @@ class Document extends SubiektObj
             return false;
         }
         $this->gt_id = $this->documentGt->Identyfikator;
-        $this->fiscal_state = $this->documentGt->StatusFiskalny;
         $this->accounting_state = $this->documentGt->StatusKsiegowy;
         $this->doc_type = $this->doc_types[$this->documentGt->Typ];
         $this->doc_type_id = $this->documentGt->Typ;
@@ -129,7 +125,6 @@ class Document extends SubiektObj
             $positions[$this->documentGt->Pozycje->Element($i)->Id]['code'] = $this->documentGt->Pozycje->Element($i)->TowarSymbol;
         }
 
-
         $products = $this->getPositionsByOrderId($this->gt_id);
         foreach ($products as $p) {
             $p_a = array('name' => $positions[$p['ob_Id']]['name'],
@@ -142,7 +137,6 @@ class Document extends SubiektObj
                 'total_gross' => $p['ob_WartBrutto']);
             $this->products[] = $p_a;
         }
-
     }
 
     protected function getDocumentById($id)
@@ -357,6 +351,188 @@ class Document extends SubiektObj
             return ['state' => 'success', 'data' => $result];
         } catch (Exception $e) {
             Logger::getInstance()->log('api', 'Błąd podczas pobierania nieopłaconych należności: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
+    }
+
+    public function getLastOrders()
+    {
+        try {
+            $sql = "SELECT TOP 100
+                    d.dok_Id,
+                    d.dok_NrPelny,
+                    d.dok_WartBrutto,
+                    d.dok_TerminRealizacji,
+                    d.dok_DataWyst as date_issue,
+                    d.dok_Status,
+                    d.dok_StatusKsieg as accounting_state,
+                    k.kh_Symbol as ref_id,
+                    k.adr_NazwaPelna as company_name,
+                    k.adr_NIP as tax_id,
+                    k.adr_Adres as address,
+                    k.adr_Kod as post_code,
+                    k.adr_Miejscowosc as city,
+                    k.kh_EMail as email,
+                    k.adr_Telefon as phone
+                FROM dok__Dokument d
+                LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                WHERE d.dok_Typ = 16 /* Zamówienie od klienta */
+                ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
+
+            $data = MSSql::getInstance()->query($sql);
+            $result = [];
+
+            foreach ($data as $row) {
+                $positions = $this->getPositionsByOrderId($row['dok_Id']);
+                $result[] = [
+                    'doc_ref' => $row['dok_NrPelny'],
+                    'amount' => $row['dok_WartBrutto'],
+                    'date_issue' => $row['date_issue'],
+                    'date_of_delivery' => $row['dok_TerminRealizacji'],
+                    'status' => $row['dok_Status'],
+                    'accounting_state' => $row['accounting_state'],
+                    'fiscal_state' => $row['fiscal_state'],
+                    'customer' => [
+                        'ref_id' => $row['ref_id'],
+                        'company_name' => $row['company_name'],
+                        'tax_id' => $row['tax_id'],
+                        'address' => $row['address'],
+                        'post_code' => $row['post_code'],
+                        'city' => $row['city'],
+                        'email' => $row['email'],
+                        'phone' => $row['phone']
+                    ],
+                    'positions' => $positions
+                ];
+            }
+
+            Logger::getInstance()->log('api', 'Pobrano listę ostatnich 100 zamówień', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'success', 'data' => $result];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania zamówień: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
+    }
+
+    public function getLastDocumentsFromApi($json_request)
+    {
+        try {
+            $data = json_decode($json_request, true);
+            
+            if (!isset($data['data'])) {
+                throw new Exception("Brak sekcji 'data' w zapytaniu");
+            }
+
+            $requestData = $data['data'];
+            
+            if (!isset($requestData['doc_type'])) {
+                throw new Exception("Nie podano typu dokumentu (doc_type)");
+            }
+
+            $doc_type = (int)$requestData['doc_type'];
+            $limit = isset($requestData['limit']) ? (int)$requestData['limit'] : 100;
+
+            return $this->getLastDocuments($doc_type, $limit);
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas przetwarzania zapytania API: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return array(
+                'state' => 'fail',
+                'message' => $e->getMessage()
+            );
+        }
+    }
+
+    public function getLastDocuments($doc_type, $limit = 100)
+    {
+        try {
+            if (!is_numeric($doc_type)) {
+                throw new Exception("Typ dokumentu musi być liczbą");
+            }
+            
+            if (!is_numeric($limit) || $limit <= 0) {
+                throw new Exception("Limit dokumentów musi być liczbą większą od 0");
+            }
+
+            $sql = "SELECT TOP {$limit}
+                    d.dok_Id,
+                    d.dok_NrPelny,
+                    d.dok_NrPelnyOryg,
+                    d.dok_WartBrutto,
+                    d.dok_WartNetto,
+                    d.dok_WartVat,
+                    d.dok_TerminRealizacji,
+                    d.dok_DataWyst,
+                    d.dok_Status,
+                    d.dok_StatusKsieg,
+                    d.dok_Uwagi,
+                    d.dok_PrzetworzonoZKwZD,
+                    k.kh_Symbol,
+                    k.adr_NazwaPelna,
+                    k.adr_NIP,
+                    k.adr_Adres,
+                    k.adr_Kod,
+                    k.adr_Miejscowosc,
+                    k.kh_EMail,
+                    k.adr_Telefon,
+                    fw.flw_IdFlagi as flg_Id,
+                    f.flg_Text,
+                    fw.flw_IdGrupy as flg_IdGrupy,
+                    fw.flw_Komentarz
+                FROM dok__Dokument d
+                LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                LEFT JOIN fl_Wartosc fw ON (fw.flw_IdObiektu = d.dok_Id)
+                LEFT JOIN fl__Flagi f ON (f.flg_Id = fw.flw_IdFlagi)
+                WHERE d.dok_Typ = {$doc_type}
+                AND d.dok_Status >= 0
+                ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
+
+            $data = MSSql::getInstance()->query($sql);
+            
+            if (!is_array($data)) {
+                throw new Exception("Błąd podczas pobierania danych z bazy");
+            }
+            
+            $result = [];
+
+            foreach ($data as $row) {
+                $positions = $this->getPositionsByOrderId($row['dok_Id']);
+                $result[] = [
+                    'doc_ref' => $row['dok_NrPelny'],
+                    'reference' => $row['dok_NrPelnyOryg'],
+                    'amount' => $row['dok_WartBrutto'],
+                    'amount_net' => $row['dok_WartNetto'],
+                    'amount_vat' => $row['dok_WartVat'],
+                    'date_issue' => $row['dok_DataWyst'],
+                    'date_of_delivery' => $row['dok_TerminRealizacji'],
+                    'status' => $row['dok_Status'],
+                    'accounting_state' => $row['dok_StatusKsieg'],
+                    'comments' => $row['dok_Uwagi'],
+                    'order_processing' => $row['dok_PrzetworzonoZKwZD'],
+                    'customer' => [
+                        'ref_id' => $row['kh_Symbol'],
+                        'company_name' => $row['adr_NazwaPelna'],
+                        'tax_id' => $row['adr_NIP'],
+                        'address' => $row['adr_Adres'],
+                        'post_code' => $row['adr_Kod'],
+                        'city' => $row['adr_Miejscowosc'],
+                        'email' => $row['kh_EMail'],
+                        'phone' => $row['adr_Telefon']
+                    ],
+                    'flag' => [
+                        'id' => $row['flg_Id'],
+                        'name' => $row['flg_Text'],
+                        'group_id' => $row['flg_IdGrupy'],
+                        'comment' => $row['flw_Komentarz']
+                    ],
+                    'positions' => $positions
+                ];
+            }
+
+            $doc_type_name = isset($this->doc_types[$doc_type]) ? $this->doc_types[$doc_type] : 'dokumentów';
+            Logger::getInstance()->log('api', "Pobrano listę ostatnich {$limit} {$doc_type_name}", __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'success', 'data' => $result];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania dokumentów: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return ['state' => 'fail', 'message' => $e->getMessage()];
         }
     }
