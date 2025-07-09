@@ -222,7 +222,11 @@ class Order extends SubiektObj
             $p_a = array('name' => $positions[$p['ob_Id']]['name'],
                 'code' => $positions[$p['ob_Id']]['code'],
                 'qty' => $p['ob_Ilosc'],
-                'price' => $p['ob_WartBrutto']);
+                'price' => $p['ob_CenaNetto'],
+                'price_net' => $p['ob_CenaNetto'],
+                'price_gross' => $p['ob_CenaBrutto'],
+                'total_net' => $p['ob_WartNetto'],
+                'total_gross' => $p['ob_WartBrutto']);
             $this->products[] = $p_a;
         }
 
@@ -252,7 +256,7 @@ class Order extends SubiektObj
 
     protected function getPositionsByOrderId($id)
     {
-        $sql = "SELECT * FROM dok_Pozycja
+        $sql = "SELECT ob_Id, ob_Ilosc, ob_CenaNetto, ob_CenaBrutto, ob_WartNetto, ob_WartBrutto FROM dok_Pozycja
 			   WHERE ob_DokHanId = {$id}";
         $data = MSSql::getInstance()->query($sql);
         return $data;
