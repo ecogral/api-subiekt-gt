@@ -44,12 +44,10 @@ try {
 
     $class = "APISubiektGT\\SubiektGT\\{$run[0]}";
     $method = $run[1];
+    
+
     if (!class_exists($class)) {
         throw new Exception("Nieprawidłowe wywołanie API nie istnieje obiekt: {$run[0]}");
-    }
-
-    if (!method_exists($class, $method)) {
-        throw new Exception("Nieprawidłowe wywołanie API. Brak metody: {$method}");
     }
 
 
@@ -100,10 +98,26 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
+    } elseif ($run[0] == 'Order' && $method == 'getRecentOrders') {
+        $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 300;
+        $orderBy = isset($json_request['data']['orderBy']) ? $json_request['data']['orderBy'] : 'date_created';
+        $orderDirection = isset($json_request['data']['orderDirection']) ? $json_request['data']['orderDirection'] : 'desc';
+
+        $obj = new $class($subiektGtCom, $json_request['data']);
+        $obj->setCfg($cfg);
+        $result = $obj->getRecentOrders($limit, $orderBy, $orderDirection);
+
+        $json_response['state'] = 'success';
+        $json_response['data'] = $result;
     } else {
         // Istniejąca logika dla innych metod
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
+        
+        if (!method_exists($obj, $method)) {
+            throw new Exception("Nieprawidłowe wywołanie API. Brak metody: {$method} w klasie " . get_class($obj));
+        }
+        
         $reflection = new ReflectionMethod($obj, $method);
         if (!$reflection->isPublic()) {
             throw new Exception("Wywołanie metody: {$method} jest zabronione!");

@@ -380,6 +380,54 @@ class Order extends SubiektObj
         return base64_encode($pdf_file);
     }
 
+    public function getRecentOrders($limit = 30, $orderBy = 'date_created', $orderDirection = 'desc')
+    {
+        try {
+            $current_date = date('Y-m-d');
+            $sql = "SELECT TOP {$limit} 
+                        d.dok_Id,
+                        d.dok_NrPelny as order_ref,
+                        d.dok_NrPelnyOryg as reference,
+                        d.dok_WartBrutto as amount,
+                        d.dok_Status as state,
+                        d.dok_TerminRealizacji as date_of_delivery,
+                        d.dok_Uwagi as comments,
+                        d.dok_DataWyst as date_created,
+                        k.adr_NIP as customer_tax_id,
+                        k.adr_NazwaPelna as customer_name,
+                        k.kh_EMail as customer_email,
+                        k.adr_Telefon as customer_phone,
+                        k.adr_Adres as customer_address,
+                        k.adr_Kod as customer_post_code,
+                        k.adr_Miejscowosc as customer_city
+                    FROM dok__Dokument d
+                    LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                    WHERE d.dok_Typ = 16  -- Typ dokumentu ZK (Zamówienie Klienta)
+                    AND d.dok_DataWyst >= '{$current_date}'  -- Tylko zamówienia od dzisiejszej daty
+                    ORDER BY d.dok_DataWyst {$orderDirection}";
+            
+            $data = MSSql::getInstance()->query($sql);
+            
+            if (!is_array($data)) {
+                return array(
+                    'state' => 'error',
+                    'message' => 'Brak danych zamówień'
+                );
+            }
+            
+            return array(
+                'state' => 'success',
+                'data' => $data
+            );
+            
+        } catch (Exception $e) {
+            return array(
+                'state' => 'error',
+                'message' => 'Błąd pobierania ostatnich zamówień: ' . $e->getMessage()
+            );
+        }
+    }
+
 }
 
 ?>
