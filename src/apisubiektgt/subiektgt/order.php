@@ -380,7 +380,7 @@ class Order extends SubiektObj
         return base64_encode($pdf_file);
     }
 
-    public function getRecentOrders($limit = 30, $orderBy = 'date_created', $orderDirection = 'desc')
+    public function getRecentOrders($limit = 300, $orderBy = 'date_created', $orderDirection = 'desc')
     {
         try {
             $current_date = date('Y-m-d');
