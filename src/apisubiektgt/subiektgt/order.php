@@ -328,7 +328,14 @@ class Order extends SubiektObj
 
     $this->orderGt->Przelicz();
     $this->amount = $this->orderGt->WartoscBrutto;
-    $this->orderGt->Wystawil = Helper::toWin($this->cfg->getIdPerson());
+    // Sprawdź czy istnieje pole caretaker w orderDetail, jeśli tak - użyj go, w przeciwnym razie użyj użytkownika z konfiguracji
+    if (isset($this->orderDetail['caretaker']) && !empty($this->orderDetail['caretaker'])) {
+        $this->orderGt->Wystawil = Helper::toWin($this->orderDetail['caretaker']);
+        Logger::getInstance()->log('api', 'Użyto użytkownika z zapytania (caretaker): ' . $this->orderDetail['caretaker'], __CLASS__ . '->' . __FUNCTION__, __LINE__);
+    } else {
+        $this->orderGt->Wystawil = Helper::toWin($this->cfg->getIdPerson());
+        Logger::getInstance()->log('api', 'Użyto użytkownika z konfiguracji: ' . $this->cfg->getIdPerson(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+    }
     $this->setGtObject();
     $this->orderGt->Zapisz();
 
