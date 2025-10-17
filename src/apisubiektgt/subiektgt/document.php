@@ -476,7 +476,7 @@ class Document extends SubiektObj
                     k.adr_Telefon,
                     fw.flw_IdFlagi as flg_Id,
                     f.flg_Text,
-                    fw.flw_IdGrupy as flg_IdGrupy,
+                    fw.flw_IdGrupyFlag as flg_IdGrupy,
                     fw.flw_Komentarz
                 FROM dok__Dokument d
                 LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
@@ -519,10 +519,10 @@ class Document extends SubiektObj
                         'phone' => $row['adr_Telefon']
                     ],
                     'flag' => [
-                        'id' => $row['flg_Id'],
-                        'name' => $row['flg_Text'],
-                        'group_id' => $row['flg_IdGrupy'],
-                        'comment' => $row['flw_Komentarz']
+                        'id' => null,
+                        'name' => null,
+                        'group_id' => null,
+                        'comment' => null
                     ],
                     'positions' => $positions
                 ];
@@ -533,6 +533,348 @@ class Document extends SubiektObj
             return ['state' => 'success', 'data' => $result];
         } catch (Exception $e) {
             Logger::getInstance()->log('api', 'Błąd podczas pobierania dokumentów: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Pobiera wszystkie dokumenty (WZ, FV, FR, ZK) dla firmy o podanym NIP
+     * 
+     * @param string $tax_id NIP firmy
+     * @return array Wynik z dokumentami pogrupowanymi według typu
+     */
+    public function getDocumentsByTaxId($tax_id)
+    {
+        try {
+            Logger::getInstance()->log('api', 'Rozpoczęcie pobierania dokumentów dla NIP: ' . $tax_id, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            if (empty($tax_id)) {
+                throw new Exception("NIP firmy nie może być pusty");
+            }
+
+            // Najpierw szukamy klienta po NIPie
+            $sql = "SELECT kh_Id as customer_id, kh_Symbol as customer_symbol, adr_NazwaPelna as company_name, adr_NIP as nip 
+                    FROM vwKlienci 
+                    WHERE adr_NIP = '{$tax_id}'";
+            
+            Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po klienta: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $customer_data = MSSql::getInstance()->query($sql);
+            
+            if (empty($customer_data)) {
+                Logger::getInstance()->log('api', 'Nie znaleziono klienta o NIP: ' . $tax_id, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                return [
+                    'state' => 'success',
+                    'data' => [
+                        'customer' => null,
+                        'documents' => [
+                            'WZ' => [],
+                            'FS' => [],
+                            'KFS' => [],
+                            'ZK' => []
+                        ],
+                        'total_count' => 0
+                    ]
+                ];
+            }
+
+            $customer_id = $customer_data[0]['customer_id'];
+            $customer_symbol = $customer_data[0]['customer_symbol'];
+            $company_name = $customer_data[0]['company_name'];
+            
+            Logger::getInstance()->log('api', 'Znaleziono klienta: ID=' . $customer_id . ', Symbol=' . $customer_symbol, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            // Pobieramy wszystkie dokumenty dla znalezionego klienta (FS=2, KFS=6, WZ=11, ZK=16)
+            $sql = "SELECT 
+                        d.dok_Id,
+                        d.dok_NrPelny,
+                        d.dok_NrPelnyOryg,
+                        d.dok_WartBrutto,
+                        d.dok_WartNetto,
+                        d.dok_WartVat,
+                        d.dok_TerminRealizacji,
+                        d.dok_DataWyst,
+                        d.dok_Status,
+                        d.dok_StatusKsieg,
+                        d.dok_Uwagi,
+                        d.dok_PrzetworzonoZKwZD,
+                        d.dok_Typ,
+                        k.kh_Symbol,
+                        k.adr_NazwaPelna,
+                        k.adr_NIP,
+                        k.adr_Adres,
+                        k.adr_Kod,
+                        k.adr_Miejscowosc,
+                        k.kh_EMail,
+                        k.adr_Telefon
+                    FROM dok__Dokument d
+                    LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                    WHERE d.dok_PlatnikId = {$customer_id}
+                    AND d.dok_Typ IN (2, 6, 11, 16)  -- FS, KFS, WZ, ZK
+                    ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
+            
+            Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po dokumenty: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $data = MSSql::getInstance()->query($sql);
+            
+            Logger::getInstance()->log('api', 'Znaleziono dokumentów: ' . count($data), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            // Debug: sprawdźmy wszystkie dokumenty dla tego klienta (bez filtrowania po typie)
+            $debug_sql = "SELECT dok_Id, dok_NrPelny, dok_Typ, dok_Status, dok_DataWyst, dok_WartBrutto 
+                         FROM dok__Dokument 
+                         WHERE dok_PlatnikId = {$customer_id} 
+                         ORDER BY dok_DataWyst DESC";
+            $debug_data = MSSql::getInstance()->query($debug_sql);
+            Logger::getInstance()->log('api', 'DEBUG - Wszystkie dokumenty dla klienta ID=' . $customer_id . ': ' . json_encode($debug_data), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            // Grupujemy dokumenty według typu
+            $documents = [
+                'WZ' => [],
+                'FS' => [],  // Faktura Sprzedaży (typ 2)
+                'KFS' => [], // Korekta Faktury Sprzedaży (typ 6)
+                'ZK' => []
+            ];
+            
+            $total_count = 0;
+
+            foreach ($data as $row) {
+                $positions = $this->getPositionsByOrderId($row['dok_Id']);
+                
+                $document = [
+                    'doc_ref' => $row['dok_NrPelny'],
+                    'reference' => $row['dok_NrPelnyOryg'],
+                    'amount' => $row['dok_WartBrutto'],
+                    'amount_net' => $row['dok_WartNetto'],
+                    'amount_vat' => $row['dok_WartVat'],
+                    'date_issue' => $row['dok_DataWyst'],
+                    'date_of_delivery' => $row['dok_TerminRealizacji'],
+                    'status' => $row['dok_Status'],
+                    'accounting_state' => $row['dok_StatusKsieg'],
+                    'comments' => $row['dok_Uwagi'],
+                    'order_processing' => $row['dok_PrzetworzonoZKwZD'],
+                    'doc_type' => $row['dok_Typ'],
+                    'doc_type_name' => isset($this->doc_types[$row['dok_Typ']]) ? $this->doc_types[$row['dok_Typ']] : 'Nieznany',
+                    'customer' => [
+                        'ref_id' => $row['kh_Symbol'],
+                        'company_name' => $row['adr_NazwaPelna'],
+                        'tax_id' => $row['adr_NIP'],
+                        'address' => $row['adr_Adres'],
+                        'post_code' => $row['adr_Kod'],
+                        'city' => $row['adr_Miejscowosc'],
+                        'email' => $row['kh_EMail'],
+                        'phone' => $row['adr_Telefon']
+                    ],
+                    'flag' => [
+                        'id' => null,
+                        'name' => null,
+                        'group_id' => null,
+                        'comment' => null
+                    ],
+                    'positions' => $positions
+                ];
+                
+                // Dodajemy dokument do odpowiedniej grupy
+                switch ($row['dok_Typ']) {
+                    case 11: // WZ
+                        $documents['WZ'][] = $document;
+                        break;
+                    case 2:  // FS (Faktura Sprzedaży)
+                        $documents['FS'][] = $document;
+                        break;
+                    case 6:  // KFS (Korekta Faktury Sprzedaży)
+                        $documents['KFS'][] = $document;
+                        break;
+                    case 16: // ZK
+                        $documents['ZK'][] = $document;
+                        break;
+                }
+                
+                $total_count++;
+            }
+
+            $result = [
+                'customer' => [
+                    'id' => $customer_id,
+                    'symbol' => $customer_symbol,
+                    'company_name' => $company_name,
+                    'tax_id' => $tax_id
+                ],
+                'documents' => $documents,
+                'total_count' => $total_count,
+                'summary' => [
+                    'WZ_count' => count($documents['WZ']),
+                    'FS_count' => count($documents['FS']),
+                    'KFS_count' => count($documents['KFS']),
+                    'ZK_count' => count($documents['ZK'])
+                ]
+            ];
+
+            Logger::getInstance()->log('api', 'Pobrano dokumenty dla firmy: ' . $company_name . ' (NIP: ' . $tax_id . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', 'Podsumowanie: WZ=' . count($documents['WZ']) . ', FS=' . count($documents['FS']) . ', KFS=' . count($documents['KFS']) . ', ZK=' . count($documents['ZK']), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            return ['state' => 'success', 'data' => $result];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania dokumentów po NIP: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Pobiera faktury (FV) z określonego zakresu dat
+     * 
+     * @param string $date_from Data początkowa (format YYYY-MM-DD)
+     * @param string $date_to Data końcowa (format YYYY-MM-DD)
+     * @param int $limit Maksymalna liczba faktur do pobrania (domyślnie 1000)
+     * @return array Wynik z fakturaami z zakresu dat
+     */
+    public function getInvoicesByDateRange($date_from, $date_to, $limit = 1000)
+    {
+        try {
+            Logger::getInstance()->log('api', 'Rozpoczęcie pobierania faktur z zakresu dat: ' . $date_from . ' - ' . $date_to, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            if (empty($date_from) || empty($date_to)) {
+                throw new Exception("Data początkowa i końcowa nie mogą być puste");
+            }
+
+            // Walidacja formatu dat
+            $date_from_obj = DateTime::createFromFormat('Y-m-d', $date_from);
+            $date_to_obj = DateTime::createFromFormat('Y-m-d', $date_to);
+            
+            if (!$date_from_obj || !$date_to_obj) {
+                throw new Exception("Nieprawidłowy format dat. Użyj formatu YYYY-MM-DD");
+            }
+
+            if ($date_from_obj > $date_to_obj) {
+                throw new Exception("Data początkowa nie może być późniejsza niż data końcowa");
+            }
+
+            if (!is_numeric($limit) || $limit <= 0) {
+                throw new Exception("Limit musi być liczbą większą od 0");
+            }
+
+            // Pobieramy faktury (typ 2) z zakresu dat
+            $sql = "SELECT TOP {$limit}
+                        d.dok_Id,
+                        d.dok_NrPelny,
+                        d.dok_NrPelnyOryg,
+                        d.dok_WartBrutto,
+                        d.dok_WartNetto,
+                        d.dok_WartVat,
+                        d.dok_TerminRealizacji,
+                        d.dok_DataWyst,
+                        d.dok_Status,
+                        d.dok_StatusKsieg,
+                        d.dok_Uwagi,
+                        d.dok_PrzetworzonoZKwZD,
+                        d.dok_KwDoZaplaty,
+                        d.dok_PlatTermin,
+                        k.kh_Symbol,
+                        k.adr_NazwaPelna,
+                        k.adr_NIP,
+                        k.adr_Adres,
+                        k.adr_Kod,
+                        k.adr_Miejscowosc,
+                        k.kh_EMail,
+                        k.adr_Telefon,
+                        fw.flw_IdFlagi as flg_Id,
+                        f.flg_Text,
+                        fw.flw_IdGrupyFlag as flg_IdGrupy,
+                        fw.flw_Komentarz
+                    FROM dok__Dokument d
+                    LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                    LEFT JOIN fl_Wartosc fw ON (fw.flw_IdObiektu = d.dok_Id)
+                    LEFT JOIN fl__Flagi f ON (f.flg_Id = fw.flw_IdFlagi)
+                    WHERE d.dok_Typ = 2  -- Faktura sprzedaży
+                    AND d.dok_Status >= 0
+                    AND d.dok_DataWyst >= '{$date_from}'
+                    AND d.dok_DataWyst <= '{$date_to}'
+                    ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
+            
+            Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po faktury: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $data = MSSql::getInstance()->query($sql);
+            
+            Logger::getInstance()->log('api', 'Znaleziono faktur: ' . count($data), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $invoices = [];
+            $total_amount = 0;
+            $total_amount_net = 0;
+            $total_amount_vat = 0;
+            $unpaid_count = 0;
+
+            foreach ($data as $row) {
+                $positions = $this->getPositionsByOrderId($row['dok_Id']);
+                
+                $amount_to_pay = $row['dok_KwDoZaplaty'] ?? 0;
+                $is_unpaid = $amount_to_pay > 0;
+                
+                if ($is_unpaid) {
+                    $unpaid_count++;
+                }
+                
+                $total_amount += $row['dok_WartBrutto'];
+                $total_amount_net += $row['dok_WartNetto'];
+                $total_amount_vat += $row['dok_WartVat'];
+                
+                $invoices[] = [
+                    'doc_ref' => $row['dok_NrPelny'],
+                    'reference' => $row['dok_NrPelnyOryg'],
+                    'amount' => $row['dok_WartBrutto'],
+                    'amount_net' => $row['dok_WartNetto'],
+                    'amount_vat' => $row['dok_WartVat'],
+                    'amount_to_pay' => $amount_to_pay,
+                    'is_unpaid' => $is_unpaid,
+                    'date_issue' => $row['dok_DataWyst'],
+                    'date_of_delivery' => $row['dok_TerminRealizacji'],
+                    'payment_term' => $row['dok_PlatTermin'],
+                    'status' => $row['dok_Status'],
+                    'accounting_state' => $row['dok_StatusKsieg'],
+                    'comments' => $row['dok_Uwagi'],
+                    'order_processing' => $row['dok_PrzetworzonoZKwZD'],
+                    'doc_type' => $row['dok_Typ'],
+                    'doc_type_name' => 'FV',
+                    'customer' => [
+                        'ref_id' => $row['kh_Symbol'],
+                        'company_name' => $row['adr_NazwaPelna'],
+                        'tax_id' => $row['adr_NIP'],
+                        'address' => $row['adr_Adres'],
+                        'post_code' => $row['adr_Kod'],
+                        'city' => $row['adr_Miejscowosc'],
+                        'email' => $row['kh_EMail'],
+                        'phone' => $row['adr_Telefon']
+                    ],
+                    'flag' => [
+                        'id' => null,
+                        'name' => null,
+                        'group_id' => null,
+                        'comment' => null
+                    ],
+                    'positions' => $positions
+                ];
+            }
+
+            $result = [
+                'date_range' => [
+                    'from' => $date_from,
+                    'to' => $date_to
+                ],
+                'invoices' => $invoices,
+                'summary' => [
+                    'total_count' => count($invoices),
+                    'unpaid_count' => $unpaid_count,
+                    'paid_count' => count($invoices) - $unpaid_count,
+                    'total_amount' => $total_amount,
+                    'total_amount_net' => $total_amount_net,
+                    'total_amount_vat' => $total_amount_vat
+                ]
+            ];
+
+            Logger::getInstance()->log('api', 'Pobrano faktury z zakresu: ' . $date_from . ' - ' . $date_to . ' (łącznie: ' . count($invoices) . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', 'Podsumowanie: nieopłacone=' . $unpaid_count . ', opłacone=' . (count($invoices) - $unpaid_count) . ', suma=' . $total_amount, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            return ['state' => 'success', 'data' => $result];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania faktur z zakresu dat: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return ['state' => 'fail', 'message' => $e->getMessage()];
         }
     }

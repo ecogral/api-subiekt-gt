@@ -91,6 +91,30 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
+    } elseif ($run[0] == 'Document' && $method == 'getDocumentsByTaxId') {
+        if (!isset($json_request['data']['tax_id'])) {
+            throw new Exception('Brak wymaganego parametru tax_id');
+        }
+        
+        $obj = new $class($subiektGtCom, $json_request['data']);
+        $obj->setCfg($cfg);
+        $result = $obj->getDocumentsByTaxId($json_request['data']['tax_id']);
+
+        $json_response['state'] = 'success';
+        $json_response['data'] = $result;
+    } elseif ($run[0] == 'Document' && $method == 'getInvoicesByDateRange') {
+        if (!isset($json_request['data']['date_from']) || !isset($json_request['data']['date_to'])) {
+            throw new Exception('Brak wymaganych parametrów: date_from i date_to');
+        }
+        
+        $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 1000;
+        
+        $obj = new $class($subiektGtCom, $json_request['data']);
+        $obj->setCfg($cfg);
+        $result = $obj->getInvoicesByDateRange($json_request['data']['date_from'], $json_request['data']['date_to'], $limit);
+
+        $json_response['state'] = 'success';
+        $json_response['data'] = $result;
     } elseif ($run[0] == 'Product' && $method == 'getStocks') {
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
