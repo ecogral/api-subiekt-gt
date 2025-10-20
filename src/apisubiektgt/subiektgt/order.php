@@ -439,6 +439,172 @@ class Order extends SubiektObj
         }
     }
 
+    /**
+     * Pobiera zamówienia z bieżącego miesiąca z informacją o opiekunie klienta
+     * Funkcja synchronizacji - sprawdza opiekuna dla już pobranych zamówień
+     * 
+     * @param int $limit Maksymalna liczba zamówień do pobrania
+     * @param array $existing_orders Array istniejących zamówień z zewnętrznego systemu
+     * @return array Wynik z zamówieniami i informacją o zmianach opiekuna
+     */
+    public function getCurrentMonthOrdersWithCaretakerSync($limit = 1000, $existing_orders = [])
+    {
+        try {
+            $current_month_start = date('Y-m-01'); // Pierwszy dzień bieżącego miesiąca
+            $current_month_end = date('Y-m-t');    // Ostatni dzień bieżącego miesiąca
+            
+            Logger::getInstance()->log('api', 'Rozpoczęcie synchronizacji zamówień z miesiąca: ' . $current_month_start . ' - ' . $current_month_end, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $sql = "SELECT TOP {$limit} 
+                        d.dok_Id,
+                        d.dok_NrPelny as order_ref,
+                        d.dok_NrPelnyOryg as reference,
+                        d.dok_WartBrutto as amount,
+                        d.dok_WartNetto as amount_net,
+                        d.dok_WartVat as amount_vat,
+                        d.dok_Status as state,
+                        d.dok_TerminRealizacji as date_of_delivery,
+                        d.dok_Uwagi as comments,
+                        d.dok_DataWyst as date_created,
+                        d.dok_StatusKsieg as accounting_state,
+                        k.kh_Id as customer_id,
+                        k.kh_Symbol as customer_ref_id,
+                        k.adr_NIP as customer_tax_id,
+                        k.adr_NazwaPelna as customer_name,
+                        k.kh_EMail as customer_email,
+                        k.adr_Telefon as customer_phone,
+                        k.adr_Adres as customer_address,
+                        k.adr_Kod as customer_post_code,
+                        k.adr_Miejscowosc as customer_city,
+                        k.CrmOsobaKontaktowa as customer_caretaker
+                    FROM dok__Dokument d
+                    LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                    WHERE d.dok_Typ = 16  -- Typ dokumentu ZK (Zamówienie Klienta)
+                    AND d.dok_DataWyst >= '{$current_month_start}'
+                    AND d.dok_DataWyst <= '{$current_month_end}'
+                    ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
+            
+            Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po zamówienia: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $data = MSSql::getInstance()->query($sql);
+            
+            if (!is_array($data)) {
+                return array(
+                    'state' => 'error',
+                    'message' => 'Błąd podczas pobierania danych z bazy'
+                );
+            }
+            
+            Logger::getInstance()->log('api', 'Znaleziono zamówień: ' . count($data), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $orders = [];
+            $caretaker_changes = [];
+            $new_orders = [];
+            $updated_orders = [];
+            
+            // Tworzymy mapę istniejących zamówień dla szybkiego wyszukiwania
+            $existing_orders_map = [];
+            foreach ($existing_orders as $existing_order) {
+                $order_ref = $existing_order['order_ref'] ?? $existing_order['doc_ref'] ?? '';
+                if ($order_ref) {
+                    $existing_orders_map[$order_ref] = $existing_order;
+                }
+            }
+            
+            foreach ($data as $row) {
+                $order_ref = $row['order_ref'];
+                $current_caretaker = $row['customer_caretaker'];
+                
+                // Pobieramy pozycje zamówienia
+                $positions = $this->getPositionsByOrderId($row['dok_Id']);
+                
+                $order_data = [
+                    'order_ref' => $order_ref,
+                    'reference' => $row['reference'],
+                    'amount' => $row['amount'],
+                    'amount_net' => $row['amount_net'],
+                    'amount_vat' => $row['amount_vat'],
+                    'state' => $row['state'],
+                    'accounting_state' => $row['accounting_state'],
+                    'date_of_delivery' => $row['date_of_delivery'],
+                    'comments' => $row['comments'],
+                    'date_created' => $row['date_created'],
+                    'customer' => [
+                        'id' => $row['customer_id'],
+                        'ref_id' => $row['customer_ref_id'],
+                        'tax_id' => $row['customer_tax_id'],
+                        'name' => $row['customer_name'],
+                        'email' => $row['customer_email'],
+                        'phone' => $row['customer_phone'],
+                        'address' => $row['customer_address'],
+                        'post_code' => $row['customer_post_code'],
+                        'city' => $row['customer_city'],
+                        'caretaker' => $current_caretaker
+                    ],
+                    'positions' => $positions
+                ];
+                
+                $orders[] = $order_data;
+                
+                // Sprawdzamy czy zamówienie już istnieje w zewnętrznym systemie
+                if (isset($existing_orders_map[$order_ref])) {
+                    $existing_order = $existing_orders_map[$order_ref];
+                    $existing_caretaker = $existing_order['customer']['caretaker'] ?? '';
+                    
+                    // Sprawdzamy czy opiekun się zmienił
+                    if ($existing_caretaker !== $current_caretaker) {
+                        $caretaker_changes[] = [
+                            'order_ref' => $order_ref,
+                            'customer_name' => $row['customer_name'],
+                            'customer_tax_id' => $row['customer_tax_id'],
+                            'old_caretaker' => $existing_caretaker,
+                            'new_caretaker' => $current_caretaker,
+                            'change_date' => date('Y-m-d H:i:s')
+                        ];
+                        
+                        $updated_orders[] = $order_data;
+                        
+                        Logger::getInstance()->log('api', "Zmiana opiekuna dla zamówienia {$order_ref}: '{$existing_caretaker}' -> '{$current_caretaker}'", __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                    }
+                } else {
+                    // Nowe zamówienie
+                    $new_orders[] = $order_data;
+                }
+            }
+            
+            $result = [
+                'date_range' => [
+                    'from' => $current_month_start,
+                    'to' => $current_month_end
+                ],
+                'orders' => $orders,
+                'summary' => [
+                    'total_count' => count($orders),
+                    'new_orders_count' => count($new_orders),
+                    'updated_orders_count' => count($updated_orders),
+                    'caretaker_changes_count' => count($caretaker_changes)
+                ],
+                'caretaker_changes' => $caretaker_changes,
+                'new_orders' => $new_orders,
+                'updated_orders' => $updated_orders
+            ];
+            
+            Logger::getInstance()->log('api', 'Synchronizacja zakończona: nowe=' . count($new_orders) . ', zaktualizowane=' . count($updated_orders) . ', zmiany opiekuna=' . count($caretaker_changes), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            return array(
+                'state' => 'success',
+                'data' => $result
+            );
+            
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas synchronizacji zamówień: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return array(
+                'state' => 'error',
+                'message' => 'Błąd synchronizacji zamówień: ' . $e->getMessage()
+            );
+        }
+    }
+
 }
 
 ?>

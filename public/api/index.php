@@ -123,13 +123,22 @@ try {
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
     } elseif ($run[0] == 'Order' && $method == 'getRecentOrders') {
-        $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 300;
-        $orderBy = isset($json_request['data']['orderBy']) ? $json_request['data']['orderBy'] : 'date_created';
-        $orderDirection = isset($json_request['data']['orderDirection']) ? $json_request['data']['orderDirection'] : 'desc';
+        $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 1000;
+        $existing_orders = isset($json_request['data']['existing_orders']) ? $json_request['data']['existing_orders'] : [];
 
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
-        $result = $obj->getRecentOrders($limit, $orderBy, $orderDirection);
+        $result = $obj->getCurrentMonthOrdersWithCaretakerSync($limit, $existing_orders);
+
+        $json_response['state'] = 'success';
+        $json_response['data'] = $result;
+    } elseif ($run[0] == 'Order' && $method == 'getCurrentMonthOrdersWithCaretakerSync') {
+        $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 1000;
+        $existing_orders = isset($json_request['data']['existing_orders']) ? $json_request['data']['existing_orders'] : [];
+
+        $obj = new $class($subiektGtCom, $json_request['data']);
+        $obj->setCfg($cfg);
+        $result = $obj->getCurrentMonthOrdersWithCaretakerSync($limit, $existing_orders);
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
