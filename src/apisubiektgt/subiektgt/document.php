@@ -442,7 +442,7 @@ class Document extends SubiektObj
         }
     }
 
-    public function getLastDocuments($doc_type, $limit = 100)
+    public function getLastDocuments($doc_type, $limit = 2000)
     {
         try {
             if (!is_numeric($doc_type)) {
@@ -473,15 +473,9 @@ class Document extends SubiektObj
                     k.adr_Kod,
                     k.adr_Miejscowosc,
                     k.kh_EMail,
-                    k.adr_Telefon,
-                    fw.flw_IdFlagi as flg_Id,
-                    f.flg_Text,
-                    fw.flw_IdGrupyFlag as flg_IdGrupy,
-                    fw.flw_Komentarz
+                    k.adr_Telefon
                 FROM dok__Dokument d
                 LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
-                LEFT JOIN fl_Wartosc fw ON (fw.flw_IdObiektu = d.dok_Id)
-                LEFT JOIN fl__Flagi f ON (f.flg_Id = fw.flw_IdFlagi)
                 WHERE d.dok_Typ = {$doc_type}
                 AND d.dok_Status >= 0
                 ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
@@ -535,6 +529,18 @@ class Document extends SubiektObj
             Logger::getInstance()->log('api', 'Błąd podczas pobierania dokumentów: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return ['state' => 'fail', 'message' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Alias dla getLastDocuments - pobiera ostatnie dokumenty
+     * 
+     * @param int $doc_type Typ dokumentu (2=FS, 11=WZ, 16=ZK, itp.)
+     * @param int $limit Limit dokumentów
+     * @return array Wynik z dokumentami
+     */
+    public function getRecentDocuments($doc_type, $limit = 100)
+    {
+        return $this->getLastDocuments($doc_type, $limit);
     }
 
     /**
