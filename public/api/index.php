@@ -116,16 +116,11 @@ try {
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
     } elseif ($run[0] == 'Document' && $method == 'getRecentDocuments') {
-        if (!isset($json_request['data']['doc_type'])) {
-            throw new Exception('Brak wymaganego parametru doc_type');
-        }
-        
-        $doc_type = intval($json_request['data']['doc_type']);
         $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 100;
         
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
-        $result = $obj->getRecentDocuments($doc_type, $limit);
+        $result = $obj->getRecentDocuments($limit);
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
@@ -183,8 +178,9 @@ try {
     Logger::getInstance()->log('api', 'Request finish: ' . $_SERVER['REMOTE_ADDR'], $class . '->' . $method, __LINE__);
 } catch (Exception $e) {
     $json_response['state'] = 'fail';
-    $json_response['message'] = strip_tags($e->getMessage());
-    $json_response['obj_dump'] = print_r($obj, true);
+    $json_response['message'] = $e->getMessage();
+    $json_response['file'] = $e->getFile();
+    $json_response['line'] = $e->getLine();
     if (isset($json_request['data'])) {
         $json_response['data'] = $json_request['data'];
     }

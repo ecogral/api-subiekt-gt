@@ -151,10 +151,15 @@ class Document extends SubiektObj
 
     protected function getPositionsByOrderId($id)
     {
-        $sql = "SELECT ob_Id, ob_Ilosc, ob_CenaNetto, ob_CenaBrutto, ob_WartNetto, ob_WartBrutto FROM dok_Pozycja
-			   WHERE ob_DokHanId = {$id}";
-        $data = MSSql::getInstance()->query($sql);
-        return $data;
+        try {
+            $sql = "SELECT ob_Id, ob_Ilosc, ob_CenaNetto, ob_CenaBrutto, ob_WartNetto, ob_WartBrutto FROM dok_Pozycja
+			       WHERE ob_DokHanId = {$id}";
+            $data = MSSql::getInstance()->query($sql);
+            return is_array($data) ? $data : [];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania pozycji dokumentu: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return [];
+        }
     }
 
     public function delete()
@@ -532,15 +537,128 @@ class Document extends SubiektObj
     }
 
     /**
-     * Alias dla getLastDocuments - pobiera ostatnie dokumenty
+     * Pobiera wszystkie typy dokumentów z ostatnich 7 dni
      * 
-     * @param int $doc_type Typ dokumentu (2=FS, 11=WZ, 16=ZK, itp.)
-     * @param int $limit Limit dokumentów
-     * @return array Wynik z dokumentami
+     * @param int $limit Limit dokumentów na typ
+     * @return array Wynik z dokumentami pogrupowanymi według typu
      */
-    public function getRecentDocuments($doc_type, $limit = 100)
+    public function getRecentDocuments($limit = 100)
     {
-        return $this->getLastDocuments($doc_type, $limit);
+        try {
+            Logger::getInstance()->log('api', 'Rozpoczęcie pobierania ostatnich dokumentów z 7 dni', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            
+            $seven_days_ago = date('Y-m-d', strtotime('-7 days'));
+            $today = date('Y-m-d');
+            
+            // Definicja typów dokumentów do pobrania
+            $doc_types = [
+                2 => 'FS',   // Faktura Sprzedaży
+                6 => 'KFS',  // Korekta Faktury Sprzedaży
+                11 => 'WZ',  // Wydanie Zewnętrzne
+                16 => 'ZK'   // Zamówienie Klienta
+            ];
+            
+            $result = [
+                'state' => 'success',
+                'data' => [],
+                'summary' => [
+                    'total_documents' => 0,
+                    'date_range' => [
+                        'from' => $seven_days_ago,
+                        'to' => $today
+                    ]
+                ]
+            ];
+            
+            foreach ($doc_types as $type_id => $type_name) {
+                $sql = "SELECT TOP {$limit}
+                        d.dok_Id,
+                        d.dok_NrPelny,
+                        d.dok_NrPelnyOryg,
+                        d.dok_WartBrutto,
+                        d.dok_WartNetto,
+                        d.dok_WartVat,
+                        d.dok_TerminRealizacji,
+                        d.dok_DataWyst,
+                        d.dok_Status,
+                        d.dok_StatusKsieg,
+                        d.dok_Uwagi,
+                        d.dok_PrzetworzonoZKwZD,
+                        k.kh_Symbol,
+                        k.adr_NazwaPelna,
+                        k.adr_NIP,
+                        k.adr_Adres,
+                        k.adr_Kod,
+                        k.adr_Miejscowosc,
+                        k.kh_EMail,
+                        k.adr_Telefon
+                    FROM dok__Dokument d
+                    LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                    WHERE d.dok_Typ = {$type_id}
+                    AND d.dok_Status >= 0
+                    AND d.dok_DataWyst >= '{$seven_days_ago}'
+                    AND d.dok_DataWyst <= '{$today}'
+                    ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
+
+                $data = MSSql::getInstance()->query($sql);
+                
+                if (!is_array($data)) {
+                    Logger::getInstance()->log('api', "Błąd podczas pobierania dokumentów typu {$type_name}", __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                    continue;
+                }
+                
+                $documents = [];
+                foreach ($data as $row) {
+                    $positions = $this->getPositionsByOrderId($row['dok_Id']);
+                    $documents[] = [
+                        'doc_ref' => $row['dok_NrPelny'],
+                        'reference' => $row['dok_NrPelnyOryg'],
+                        'amount' => $row['dok_WartBrutto'],
+                        'amount_net' => $row['dok_WartNetto'],
+                        'amount_vat' => $row['dok_WartVat'],
+                        'date_issue' => $row['dok_DataWyst'],
+                        'date_of_delivery' => $row['dok_TerminRealizacji'],
+                        'status' => $row['dok_Status'],
+                        'accounting_state' => $row['dok_StatusKsieg'],
+                        'comments' => $row['dok_Uwagi'],
+                        'order_processing' => $row['dok_PrzetworzonoZKwZD'],
+                        'customer' => [
+                            'ref_id' => $row['kh_Symbol'],
+                            'company_name' => $row['adr_NazwaPelna'],
+                            'tax_id' => $row['adr_NIP'],
+                            'address' => $row['adr_Adres'],
+                            'post_code' => $row['adr_Kod'],
+                            'city' => $row['adr_Miejscowosc'],
+                            'email' => $row['kh_EMail'],
+                            'phone' => $row['adr_Telefon']
+                        ],
+                        'flag' => [
+                            'id' => null,
+                            'name' => null,
+                            'group_id' => null,
+                            'comment' => null
+                        ],
+                        'positions' => $positions
+                    ];
+                }
+                
+                $result['data'][$type_name] = [
+                    'type_name' => $type_name,
+                    'type_id' => $type_id,
+                    'count' => count($documents),
+                    'documents' => $documents
+                ];
+                
+                $result['summary']['total_documents'] += count($documents);
+            }
+            
+            Logger::getInstance()->log('api', "Pobrano {$result['summary']['total_documents']} dokumentów z ostatnich 7 dni", __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return $result;
+            
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania ostatnich dokumentów: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
     }
 
     /**
