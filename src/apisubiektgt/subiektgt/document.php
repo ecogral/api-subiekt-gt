@@ -162,6 +162,80 @@ class Document extends SubiektObj
         }
     }
 
+    /**
+     * Pobiera powiązane zamówienie (ZK) dla faktury (FS)
+     * 
+     * @param int $invoice_id ID faktury
+     * @return array|null Informacje o powiązanym zamówieniu lub null
+     */
+    protected function getRelatedOrderForInvoice($invoice_id)
+    {
+        try {
+            // Szukamy zamówienia powiązanego z fakturą przez tabelę relacji dokumentów
+            // W Subiekcie GT relacje są w tabeli dok_Powiazanie:
+            // - pow_IdDokumentuZrodlowego = ID dokumentu źródłowego (zamówienie ZK)
+            // - pow_IdDokumentuDocelowego = ID dokumentu docelowego (faktura FS)
+            $sql = "SELECT TOP 1
+                        d.dok_Id,
+                        d.dok_NrPelny,
+                        d.dok_DataWyst,
+                        d.dok_WartBrutto,
+                        d.dok_Status
+                    FROM dok__Dokument d
+                    INNER JOIN dok_Powiazanie p ON (p.pow_IdDokumentuZrodlowego = d.dok_Id AND p.pow_IdDokumentuDocelowego = {$invoice_id})
+                    WHERE d.dok_Typ = 16  -- ZK (Zamówienie Klienta)
+                    ORDER BY d.dok_DataWyst DESC";
+            
+            $data = MSSql::getInstance()->query($sql);
+            
+            // Jeśli nie znaleziono przez tabelę relacji, sprawdzamy czy faktura została przetworzona z zamówienia
+            // i szukamy zamówienia tego samego klienta z podobną datą
+            if (empty($data)) {
+                // Pobieramy informacje o fakturze
+                $invoice_sql = "SELECT dok_PlatnikId, dok_DataWyst 
+                               FROM dok__Dokument 
+                               WHERE dok_Id = {$invoice_id}";
+                $invoice_data = MSSql::getInstance()->query($invoice_sql);
+                
+                if (!empty($invoice_data)) {
+                    $customer_id = $invoice_data[0]['dok_PlatnikId'];
+                    $invoice_date = $invoice_data[0]['dok_DataWyst'];
+                    
+                    // Szukamy zamówienia tego samego klienta z datą przed lub równą dacie faktury
+                    $sql = "SELECT TOP 1
+                                d.dok_Id,
+                                d.dok_NrPelny,
+                                d.dok_DataWyst,
+                                d.dok_WartBrutto,
+                                d.dok_Status
+                            FROM dok__Dokument d
+                            WHERE d.dok_Typ = 16  -- ZK
+                            AND d.dok_PlatnikId = {$customer_id}
+                            AND d.dok_DataWyst <= '{$invoice_date}'
+                            AND d.dok_Status >= 0
+                            ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
+                    
+                    $data = MSSql::getInstance()->query($sql);
+                }
+            }
+            
+            if (!empty($data) && isset($data[0])) {
+                return [
+                    'order_id' => $data[0]['dok_Id'],
+                    'order_ref' => $data[0]['dok_NrPelny'],
+                    'order_date' => $data[0]['dok_DataWyst'],
+                    'order_amount' => $data[0]['dok_WartBrutto'],
+                    'order_status' => $data[0]['dok_Status']
+                ];
+            }
+            
+            return null;
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania powiązanego zamówienia: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return null;
+        }
+    }
+
     public function delete()
     {
         if (!$this->documentGt) {
@@ -531,6 +605,14 @@ class Document extends SubiektObj
                     $document['corrected_document_number'] = $row['dok_NrPelnyOryg'] ? $row['dok_NrPelnyOryg'] : null;
                 }
                 
+                // Dla faktur (FS) dodajemy informacje o powiązanym zamówieniu
+                if ($doc_type == 2 && isset($row['dok_PrzetworzonoZKwZD']) && $row['dok_PrzetworzonoZKwZD'] == 1) {
+                    $related_order = $this->getRelatedOrderForInvoice($row['dok_Id']);
+                    if ($related_order) {
+                        $document['related_order'] = $related_order;
+                    }
+                }
+                
                 $result[] = $document;
             }
 
@@ -651,6 +733,14 @@ class Document extends SubiektObj
                     // Dla dokumentów KFS (korekt) dodajemy numer dokumentu korygowanego
                     if ($type_id == 6) { // KFS
                         $document['corrected_document_number'] = $row['dok_NrPelnyOryg'] ? $row['dok_NrPelnyOryg'] : null;
+                    }
+                    
+                    // Dla faktur (FS) dodajemy informacje o powiązanym zamówieniu
+                    if ($type_id == 2 && isset($row['dok_PrzetworzonoZKwZD']) && $row['dok_PrzetworzonoZKwZD'] == 1) {
+                        $related_order = $this->getRelatedOrderForInvoice($row['dok_Id']);
+                        if ($related_order) {
+                            $document['related_order'] = $related_order;
+                        }
                     }
                     
                     $documents[] = $document;
@@ -816,6 +906,14 @@ class Document extends SubiektObj
                     $document['corrected_document_number'] = $row['dok_NrPelnyOryg'] ? $row['dok_NrPelnyOryg'] : null;
                 }
                 
+                // Dla faktur (FS) dodajemy informacje o powiązanym zamówieniu
+                if ($row['dok_Typ'] == 2 && $row['dok_PrzetworzonoZKwZD'] == 1) { // FS przetworzona z zamówienia
+                    $related_order = $this->getRelatedOrderForInvoice($row['dok_Id']);
+                    if ($related_order) {
+                        $document['related_order'] = $related_order;
+                    }
+                }
+                
                 // Dodajemy dokument do odpowiedniej grupy
                 switch ($row['dok_Typ']) {
                     case 11: // WZ
@@ -959,7 +1057,7 @@ class Document extends SubiektObj
                 $total_amount_net += $row['dok_WartNetto'];
                 $total_amount_vat += $row['dok_WartVat'];
                 
-                $invoices[] = [
+                $invoice = [
                     'doc_ref' => $row['dok_NrPelny'],
                     'reference' => $row['dok_NrPelnyOryg'],
                     'amount' => $row['dok_WartBrutto'],
@@ -994,6 +1092,16 @@ class Document extends SubiektObj
                     ],
                     'positions' => $positions
                 ];
+                
+                // Dla faktur przetworzonych z zamówienia dodajemy informacje o powiązanym zamówieniu
+                if ($row['dok_PrzetworzonoZKwZD'] == 1) {
+                    $related_order = $this->getRelatedOrderForInvoice($row['dok_Id']);
+                    if ($related_order) {
+                        $invoice['related_order'] = $related_order;
+                    }
+                }
+                
+                $invoices[] = $invoice;
             }
 
             $result = [
