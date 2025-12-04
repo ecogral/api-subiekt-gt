@@ -495,7 +495,7 @@ class Document extends SubiektObj
 
             foreach ($data as $row) {
                 $positions = $this->getPositionsByOrderId($row['dok_Id']);
-                $result[] = [
+                $document = [
                     'doc_ref' => $row['dok_NrPelny'],
                     'reference' => $row['dok_NrPelnyOryg'],
                     'amount' => $row['dok_WartBrutto'],
@@ -525,6 +525,13 @@ class Document extends SubiektObj
                     ],
                     'positions' => $positions
                 ];
+                
+                // Dla dokumentów KFS (korekt) dodajemy numer dokumentu korygowanego
+                if ($doc_type == 6) { // KFS
+                    $document['corrected_document_number'] = $row['dok_NrPelnyOryg'] ? $row['dok_NrPelnyOryg'] : null;
+                }
+                
+                $result[] = $document;
             }
 
             $doc_type_name = isset($this->doc_types[$doc_type]) ? $this->doc_types[$doc_type] : 'dokumentów';
@@ -610,7 +617,7 @@ class Document extends SubiektObj
                 $documents = [];
                 foreach ($data as $row) {
                     $positions = $this->getPositionsByOrderId($row['dok_Id']);
-                    $documents[] = [
+                    $document = [
                         'doc_ref' => $row['dok_NrPelny'],
                         'reference' => $row['dok_NrPelnyOryg'],
                         'amount' => $row['dok_WartBrutto'],
@@ -640,6 +647,13 @@ class Document extends SubiektObj
                         ],
                         'positions' => $positions
                     ];
+                    
+                    // Dla dokumentów KFS (korekt) dodajemy numer dokumentu korygowanego
+                    if ($type_id == 6) { // KFS
+                        $document['corrected_document_number'] = $row['dok_NrPelnyOryg'] ? $row['dok_NrPelnyOryg'] : null;
+                    }
+                    
+                    $documents[] = $document;
                 }
                 
                 $result['data'][$type_name] = [
@@ -796,6 +810,11 @@ class Document extends SubiektObj
                     ],
                     'positions' => $positions
                 ];
+                
+                // Dla dokumentów KFS (korekt) dodajemy numer dokumentu korygowanego
+                if ($row['dok_Typ'] == 6) { // KFS
+                    $document['corrected_document_number'] = $row['dok_NrPelnyOryg'] ? $row['dok_NrPelnyOryg'] : null;
+                }
                 
                 // Dodajemy dokument do odpowiedniej grupy
                 switch ($row['dok_Typ']) {
