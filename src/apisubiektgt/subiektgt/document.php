@@ -236,6 +236,79 @@ class Document extends SubiektObj
         }
     }
 
+    /**
+     * Pobiera powiązane WZ (Wydanie Zewnętrzne) dla faktury (FS)
+     * 
+     * @param int $invoice_id ID faktury
+     * @return array|null Informacje o powiązanym WZ lub null
+     */
+    protected function getRelatedWZForInvoice($invoice_id)
+    {
+        try {
+            // Szukamy WZ powiązanego z fakturą przez tabelę relacji dokumentów
+            // W Subiekcie GT relacje są w tabeli dok_Powiazanie:
+            // - pow_IdDokumentuZrodlowego = ID dokumentu źródłowego (WZ)
+            // - pow_IdDokumentuDocelowego = ID dokumentu docelowego (faktura FS)
+            $sql = "SELECT TOP 1
+                        d.dok_Id,
+                        d.dok_NrPelny,
+                        d.dok_DataWyst,
+                        d.dok_WartBrutto,
+                        d.dok_Status
+                    FROM dok__Dokument d
+                    INNER JOIN dok_Powiazanie p ON (p.pow_IdDokumentuZrodlowego = d.dok_Id AND p.pow_IdDokumentuDocelowego = {$invoice_id})
+                    WHERE d.dok_Typ = 11  -- WZ (Wydanie Zewnętrzne)
+                    ORDER BY d.dok_DataWyst DESC";
+            
+            $data = MSSql::getInstance()->query($sql);
+            
+            // Jeśli nie znaleziono przez tabelę relacji, szukamy WZ tego samego klienta z podobną datą
+            if (empty($data)) {
+                // Pobieramy informacje o fakturze
+                $invoice_sql = "SELECT dok_PlatnikId, dok_DataWyst 
+                               FROM dok__Dokument 
+                               WHERE dok_Id = {$invoice_id}";
+                $invoice_data = MSSql::getInstance()->query($invoice_sql);
+                
+                if (!empty($invoice_data)) {
+                    $customer_id = $invoice_data[0]['dok_PlatnikId'];
+                    $invoice_date = $invoice_data[0]['dok_DataWyst'];
+                    
+                    // Szukamy WZ tego samego klienta z datą przed lub równą dacie faktury
+                    $sql = "SELECT TOP 1
+                                d.dok_Id,
+                                d.dok_NrPelny,
+                                d.dok_DataWyst,
+                                d.dok_WartBrutto,
+                                d.dok_Status
+                            FROM dok__Dokument d
+                            WHERE d.dok_Typ = 11  -- WZ
+                            AND d.dok_PlatnikId = {$customer_id}
+                            AND d.dok_DataWyst <= '{$invoice_date}'
+                            AND d.dok_Status >= 0
+                            ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
+                    
+                    $data = MSSql::getInstance()->query($sql);
+                }
+            }
+            
+            if (!empty($data) && isset($data[0])) {
+                return [
+                    'wz_id' => $data[0]['dok_Id'],
+                    'wz_ref' => $data[0]['dok_NrPelny'],
+                    'wz_date' => $data[0]['dok_DataWyst'],
+                    'wz_amount' => $data[0]['dok_WartBrutto'],
+                    'wz_status' => $data[0]['dok_Status']
+                ];
+            }
+            
+            return null;
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania powiązanego WZ: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return null;
+        }
+    }
+
     public function delete()
     {
         if (!$this->documentGt) {
@@ -613,6 +686,14 @@ class Document extends SubiektObj
                     }
                 }
                 
+                // Dla faktur (FS) dodajemy informacje o powiązanym WZ
+                if ($doc_type == 2) { // FS
+                    $related_wz = $this->getRelatedWZForInvoice($row['dok_Id']);
+                    if ($related_wz) {
+                        $document['related_wz'] = $related_wz;
+                    }
+                }
+                
                 $result[] = $document;
             }
 
@@ -740,6 +821,14 @@ class Document extends SubiektObj
                         $related_order = $this->getRelatedOrderForInvoice($row['dok_Id']);
                         if ($related_order) {
                             $document['related_order'] = $related_order;
+                        }
+                    }
+                    
+                    // Dla faktur (FS) dodajemy informacje o powiązanym WZ
+                    if ($type_id == 2) { // FS
+                        $related_wz = $this->getRelatedWZForInvoice($row['dok_Id']);
+                        if ($related_wz) {
+                            $document['related_wz'] = $related_wz;
                         }
                     }
                     
@@ -911,6 +1000,14 @@ class Document extends SubiektObj
                     $related_order = $this->getRelatedOrderForInvoice($row['dok_Id']);
                     if ($related_order) {
                         $document['related_order'] = $related_order;
+                    }
+                }
+                
+                // Dla faktur (FS) dodajemy informacje o powiązanym WZ
+                if ($row['dok_Typ'] == 2) { // FS
+                    $related_wz = $this->getRelatedWZForInvoice($row['dok_Id']);
+                    if ($related_wz) {
+                        $document['related_wz'] = $related_wz;
                     }
                 }
                 
@@ -1099,6 +1196,12 @@ class Document extends SubiektObj
                     if ($related_order) {
                         $invoice['related_order'] = $related_order;
                     }
+                }
+                
+                // Dla faktur dodajemy informacje o powiązanym WZ
+                $related_wz = $this->getRelatedWZForInvoice($row['dok_Id']);
+                if ($related_wz) {
+                    $invoice['related_wz'] = $related_wz;
                 }
                 
                 $invoices[] = $invoice;
