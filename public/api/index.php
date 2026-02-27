@@ -37,17 +37,18 @@ try {
 
     //include('json_test.php');
 
-    $run = explode('/', $_GET['c']);
+    $run = explode('/', trim($_GET['c'], '/'));
     if (count($run) != 2) {
         throw new Exception("Nie prawidłowe wywołanie API");
     }
 
-    $class = "APISubiektGT\\SubiektGT\\{$run[0]}";
+    $className = ucfirst(strtolower($run[0]));
+    $class = "APISubiektGT\\SubiektGT\\{$className}";
     $method = $run[1];
     
 
     if (!class_exists($class)) {
-        throw new Exception("Nieprawidłowe wywołanie API nie istnieje obiekt: {$run[0]}");
+        throw new Exception("Nieprawidłowe wywołanie API nie istnieje obiekt: {$className}");
     }
 
 
@@ -74,7 +75,7 @@ try {
     $result = false;
 
     // Dodaj ten fragment w miejscu, gdzie przetwarzasz żądania API
-    if ($run[0] == 'Customer' && $method == 'getAllCustomers') {
+    if ($className == 'Customer' && $method == 'getAllCustomers') {
         $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 1000;
         $offset = isset($json_request['data']['offset']) ? intval($json_request['data']['offset']) : 0;
 
@@ -82,7 +83,7 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
-    } elseif ($run[0] == 'Customer' && $method == 'getCustomerZKDocuments') {
+    } elseif ($className == 'Customer' && $method == 'getCustomerZKDocuments') {
         if (!isset($json_request['data']['tax_id'])) {
             throw new Exception('Brak wymaganego parametru tax_id');
         }
@@ -91,7 +92,7 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
-    } elseif ($run[0] == 'Document' && $method == 'getDocumentsByTaxId') {
+    } elseif ($className == 'Document' && $method == 'getDocumentsByTaxId') {
         if (!isset($json_request['data']['tax_id'])) {
             throw new Exception('Brak wymaganego parametru tax_id');
         }
@@ -102,7 +103,7 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
-    } elseif ($run[0] == 'Document' && $method == 'getInvoicesByDateRange') {
+    } elseif ($className == 'Document' && $method == 'getInvoicesByDateRange') {
         if (!isset($json_request['data']['date_from']) || !isset($json_request['data']['date_to'])) {
             throw new Exception('Brak wymaganych parametrów: date_from i date_to');
         }
@@ -115,7 +116,7 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
-    } elseif ($run[0] == 'Document' && $method == 'getRecentDocuments') {
+    } elseif ($className == 'Document' && $method == 'getRecentDocuments') {
         $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 100;
         
         $obj = new $class($subiektGtCom, $json_request['data']);
@@ -124,14 +125,14 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
-    } elseif ($run[0] == 'Product' && $method == 'getStocks') {
+    } elseif ($className == 'Product' && $method == 'getStocks') {
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
         $result = $obj->getStocks();
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
-    } elseif ($run[0] == 'Order' && $method == 'getRecentOrders') {
+    } elseif ($className == 'Order' && $method == 'getRecentOrders') {
         $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 300;
         $orderBy = isset($json_request['data']['orderBy']) ? $json_request['data']['orderBy'] : 'date_created';
         $orderDirection = isset($json_request['data']['orderDirection']) ? $json_request['data']['orderDirection'] : 'desc';
@@ -142,7 +143,7 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
-    } elseif ($run[0] == 'Order' && $method == 'getCurrentMonthOrdersWithCaretakerSync') {
+    } elseif ($className == 'Order' && $method == 'getCurrentMonthOrdersWithCaretakerSync') {
         $limit = isset($json_request['data']['limit']) ? intval($json_request['data']['limit']) : 1000;
         $existing_orders = isset($json_request['data']['existing_orders']) ? $json_request['data']['existing_orders'] : [];
 
@@ -154,6 +155,12 @@ try {
         $json_response['data'] = $result;
     } else {
         // Istniejąca logika dla innych metod
+        if ($className == 'Order' && $method == 'update') {
+            $d = isset($json_request['data']) ? $json_request['data'] : [];
+            $orderRef = isset($d['order_ref']) ? $d['order_ref'] : '(brak)';
+            $productsInfo = isset($d['products']) && is_array($d['products']) ? count($d['products']) . ' pozycji' : 'brak';
+            Logger::getInstance()->log('api', 'Order/update żądanie: order_ref=' . $orderRef . ', products=' . $productsInfo, '', __LINE__);
+        }
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
         
@@ -176,15 +183,17 @@ try {
     //$subiektGtCom->Zakoncz();
 
     Logger::getInstance()->log('api', 'Request finish: ' . $_SERVER['REMOTE_ADDR'], $class . '->' . $method, __LINE__);
-} catch (Exception $e) {
+} catch (Throwable $e) {
     $json_response['state'] = 'fail';
-    $json_response['message'] = $e->getMessage();
+    $rawMessage = $e->getMessage();
+    $json_response['message'] = Helper::cleanComErrorMessage($rawMessage) ?: $rawMessage;
     $json_response['file'] = $e->getFile();
     $json_response['line'] = $e->getLine();
     if (isset($json_request['data'])) {
         $json_response['data'] = $json_request['data'];
     }
-    Logger::getInstance()->log('api_error', Helper::toWin($e->getMessage()), $e->getFile(), $e->getLine());
+    Logger::getInstance()->log('api_error', is_string($rawMessage) ? Helper::toWin($rawMessage) : (string)$rawMessage, $e->getFile(), $e->getLine());
+    Logger::getInstance()->log('api', 'API Error: ' . $rawMessage . ' in ' . $e->getFile() . ':' . $e->getLine(), '', __LINE__);
 }
 
 $json_string = json_encode($json_response, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);

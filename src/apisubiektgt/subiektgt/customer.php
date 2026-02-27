@@ -309,10 +309,10 @@ class Customer extends SubiektObj
                 return [];
             }
 
-            $customer_ident = $customer_data[0]['customer_ident'];
-            Logger::getInstance()->log('api', 'Znaleziono identyfikator klienta: ' . $customer_ident, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $customer_gt_id = (int) $customer_data[0]['gt_id'];
+            Logger::getInstance()->log('api', 'Znaleziono klienta gt_id: ' . $customer_gt_id, __CLASS__ . '->' . __FUNCTION__, __LINE__);
 
-            // Teraz pobieramy dokumenty typu ZK (16) dla znalezionego klienta
+            // Pobieramy dokumenty ZK (16) po ID płatnika – unikamy dok_NrIdentNabywcy (pusty lookup i „Kolekcja Zamowienia nie jest dostępna”)
             $sql = "SELECT 
                         dok_NrPelny as order_ref,
                         dok_DataWyst as issue_date,
@@ -321,7 +321,7 @@ class Customer extends SubiektObj
                         dok_WartBrutto as gross_value,
                         dok_Status as status
                     FROM dok__Dokument 
-                    WHERE dok_NrIdentNabywcy = '{$customer_ident}'
+                    WHERE dok_PlatnikId = {$customer_gt_id}
                     AND dok_Typ = 16
                     ORDER BY dok_DataWyst DESC";
             
@@ -377,10 +377,10 @@ class Customer extends SubiektObj
                 return [];
             }
 
-            $customer_ident = $customer_data[0]['customer_ident'];
-            Logger::getInstance()->log('api', 'Znaleziono identyfikator klienta: ' . $customer_ident, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $customer_gt_id = (int) $customer_data[0]['gt_id'];
+            Logger::getInstance()->log('api', 'Znaleziono klienta gt_id: ' . $customer_gt_id, __CLASS__ . '->' . __FUNCTION__, __LINE__);
 
-            // Pobieramy dokumenty typu ZK (16) dla znalezionego klienta
+            // Pobieramy dokumenty ZK (16) po ID płatnika – unikamy dok_NrIdentNabywcy (pusty lookup i „Kolekcja Zamowienia nie jest dostępna”)
             $sql = "SELECT 
                         dok_NrPelny as order_ref,
                         dok_DataWyst as issue_date,
@@ -391,7 +391,7 @@ class Customer extends SubiektObj
                         dok_Typ as doc_type,
                         dok_NrIdentNabywcy as buyer_ident
                     FROM dok__Dokument 
-                    WHERE (dok_NrIdentNabywcy = '{$customer_ident}' OR dok_PlatnikId = {$customer_data[0]['gt_id']})
+                    WHERE dok_PlatnikId = {$customer_gt_id}
                     AND dok_Typ = 16
                     ORDER BY dok_DataWyst DESC";
             

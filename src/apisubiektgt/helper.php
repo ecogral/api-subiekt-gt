@@ -17,6 +17,22 @@ class Helper {
        return $headers; 
     } 
 
+  /**
+   * Czyści komunikat błędu z Subiekta GT (usuwa znaczniki HTML, zostawia opis).
+   * Np. "<b>Source:</b> InsERT.GT.1<br/><b>Description:</b> Towar jest zablokowany." → "Towar jest zablokowany."
+   */
+  static public function cleanComErrorMessage($message) {
+    if (!is_string($message) || $message === '') {
+      return $message;
+    }
+    $msg = strip_tags($message);
+    $msg = html_entity_decode($msg, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    if (preg_match('/(?:Description|Opis)[:\s]+(.+)$/iu', $msg, $m)) {
+      return trim($m[1]);
+    }
+    return trim(preg_replace('/\s+/', ' ', $msg));
+  }
+
   static public function toUtf8($value){
     $iso_to_win = array(185=>177,156=>182,159=>188,165=>161,140=>166,143=>172);
     if(is_string($value)){

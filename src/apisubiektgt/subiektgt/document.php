@@ -163,6 +163,34 @@ class Document extends SubiektObj
     }
 
     /**
+     * Formatuje datę do postaci string dla odpowiedzi JSON (DateTime z MSSQL nie serializuje się poprawnie).
+     *
+     * @param mixed $value Data (DateTime, string lub null)
+     * @return string|null Data w formacie Y-m-d lub null
+     */
+    protected function formatDateForResponse($value)
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d');
+        }
+        if (is_string($value)) {
+            $dt = \DateTime::createFromFormat('Y-m-d H:i:s.u', $value);
+            if ($dt) {
+                return $dt->format('Y-m-d');
+            }
+            $dt = \DateTime::createFromFormat('Y-m-d', $value);
+            if ($dt) {
+                return $dt->format('Y-m-d');
+            }
+            return $value;
+        }
+        return null;
+    }
+
+    /**
      * Pobiera powiązane zamówienie (ZK) dla faktury (FS)
      * 
      * @param int $invoice_id ID faktury
@@ -171,10 +199,24 @@ class Document extends SubiektObj
     protected function getRelatedOrderForInvoice($invoice_id)
     {
         try {
-            // Szukamy zamówienia powiązanego z fakturą przez tabelę relacji dokumentów
-            // W Subiekcie GT relacje są w tabeli dok_Powiazanie:
-            // - pow_IdDokumentuZrodlowego = ID dokumentu źródłowego (zamówienie ZK)
-            // - pow_IdDokumentuDocelowego = ID dokumentu docelowego (faktura FS)
+            // Szukamy zamówienia tego samego klienta z datą przed lub równą dacie faktury
+            $invoice_sql = "SELECT dok_PlatnikId, dok_DataWyst 
+                           FROM dok__Dokument 
+                           WHERE dok_Id = {$invoice_id}";
+            $invoice_data = MSSql::getInstance()->query($invoice_sql);
+            
+            if (empty($invoice_data)) {
+                return null;
+            }
+            
+            $customer_id = $invoice_data[0]['dok_PlatnikId'];
+            $invoice_date_raw = $invoice_data[0]['dok_DataWyst'];
+            $invoice_date = $this->formatDateForResponse($invoice_date_raw);
+            if ($invoice_date === null) {
+                $invoice_date = is_object($invoice_date_raw) && method_exists($invoice_date_raw, 'format')
+                    ? $invoice_date_raw->format('Y-m-d') : (string) $invoice_date_raw;
+            }
+            
             $sql = "SELECT TOP 1
                         d.dok_Id,
                         d.dok_NrPelny,
@@ -182,48 +224,19 @@ class Document extends SubiektObj
                         d.dok_WartBrutto,
                         d.dok_Status
                     FROM dok__Dokument d
-                    INNER JOIN dok_Powiazanie p ON (p.pow_IdDokumentuZrodlowego = d.dok_Id AND p.pow_IdDokumentuDocelowego = {$invoice_id})
                     WHERE d.dok_Typ = 16  -- ZK (Zamówienie Klienta)
-                    ORDER BY d.dok_DataWyst DESC";
+                    AND d.dok_PlatnikId = {$customer_id}
+                    AND d.dok_DataWyst <= '{$invoice_date}'
+                    AND d.dok_Status >= 0
+                    ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
             
             $data = MSSql::getInstance()->query($sql);
-            
-            // Jeśli nie znaleziono przez tabelę relacji, sprawdzamy czy faktura została przetworzona z zamówienia
-            // i szukamy zamówienia tego samego klienta z podobną datą
-            if (empty($data)) {
-                // Pobieramy informacje o fakturze
-                $invoice_sql = "SELECT dok_PlatnikId, dok_DataWyst 
-                               FROM dok__Dokument 
-                               WHERE dok_Id = {$invoice_id}";
-                $invoice_data = MSSql::getInstance()->query($invoice_sql);
-                
-                if (!empty($invoice_data)) {
-                    $customer_id = $invoice_data[0]['dok_PlatnikId'];
-                    $invoice_date = $invoice_data[0]['dok_DataWyst'];
-                    
-                    // Szukamy zamówienia tego samego klienta z datą przed lub równą dacie faktury
-                    $sql = "SELECT TOP 1
-                                d.dok_Id,
-                                d.dok_NrPelny,
-                                d.dok_DataWyst,
-                                d.dok_WartBrutto,
-                                d.dok_Status
-                            FROM dok__Dokument d
-                            WHERE d.dok_Typ = 16  -- ZK
-                            AND d.dok_PlatnikId = {$customer_id}
-                            AND d.dok_DataWyst <= '{$invoice_date}'
-                            AND d.dok_Status >= 0
-                            ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
-                    
-                    $data = MSSql::getInstance()->query($sql);
-                }
-            }
             
             if (!empty($data) && isset($data[0])) {
                 return [
                     'order_id' => $data[0]['dok_Id'],
                     'order_ref' => $data[0]['dok_NrPelny'],
-                    'order_date' => $data[0]['dok_DataWyst'],
+                    'order_date' => $this->formatDateForResponse($data[0]['dok_DataWyst']),
                     'order_amount' => $data[0]['dok_WartBrutto'],
                     'order_status' => $data[0]['dok_Status']
                 ];
@@ -245,10 +258,24 @@ class Document extends SubiektObj
     protected function getRelatedWZForInvoice($invoice_id)
     {
         try {
-            // Szukamy WZ powiązanego z fakturą przez tabelę relacji dokumentów
-            // W Subiekcie GT relacje są w tabeli dok_Powiazanie:
-            // - pow_IdDokumentuZrodlowego = ID dokumentu źródłowego (WZ)
-            // - pow_IdDokumentuDocelowego = ID dokumentu docelowego (faktura FS)
+            // Szukamy WZ tego samego klienta z datą przed lub równą dacie faktury
+            $invoice_sql = "SELECT dok_PlatnikId, dok_DataWyst 
+                           FROM dok__Dokument 
+                           WHERE dok_Id = {$invoice_id}";
+            $invoice_data = MSSql::getInstance()->query($invoice_sql);
+            
+            if (empty($invoice_data)) {
+                return null;
+            }
+            
+            $customer_id = $invoice_data[0]['dok_PlatnikId'];
+            $invoice_date_raw = $invoice_data[0]['dok_DataWyst'];
+            $invoice_date = $this->formatDateForResponse($invoice_date_raw);
+            if ($invoice_date === null) {
+                $invoice_date = is_object($invoice_date_raw) && method_exists($invoice_date_raw, 'format')
+                    ? $invoice_date_raw->format('Y-m-d') : (string) $invoice_date_raw;
+            }
+            
             $sql = "SELECT TOP 1
                         d.dok_Id,
                         d.dok_NrPelny,
@@ -256,47 +283,19 @@ class Document extends SubiektObj
                         d.dok_WartBrutto,
                         d.dok_Status
                     FROM dok__Dokument d
-                    INNER JOIN dok_Powiazanie p ON (p.pow_IdDokumentuZrodlowego = d.dok_Id AND p.pow_IdDokumentuDocelowego = {$invoice_id})
                     WHERE d.dok_Typ = 11  -- WZ (Wydanie Zewnętrzne)
-                    ORDER BY d.dok_DataWyst DESC";
+                    AND d.dok_PlatnikId = {$customer_id}
+                    AND d.dok_DataWyst <= '{$invoice_date}'
+                    AND d.dok_Status >= 0
+                    ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
             
             $data = MSSql::getInstance()->query($sql);
-            
-            // Jeśli nie znaleziono przez tabelę relacji, szukamy WZ tego samego klienta z podobną datą
-            if (empty($data)) {
-                // Pobieramy informacje o fakturze
-                $invoice_sql = "SELECT dok_PlatnikId, dok_DataWyst 
-                               FROM dok__Dokument 
-                               WHERE dok_Id = {$invoice_id}";
-                $invoice_data = MSSql::getInstance()->query($invoice_sql);
-                
-                if (!empty($invoice_data)) {
-                    $customer_id = $invoice_data[0]['dok_PlatnikId'];
-                    $invoice_date = $invoice_data[0]['dok_DataWyst'];
-                    
-                    // Szukamy WZ tego samego klienta z datą przed lub równą dacie faktury
-                    $sql = "SELECT TOP 1
-                                d.dok_Id,
-                                d.dok_NrPelny,
-                                d.dok_DataWyst,
-                                d.dok_WartBrutto,
-                                d.dok_Status
-                            FROM dok__Dokument d
-                            WHERE d.dok_Typ = 11  -- WZ
-                            AND d.dok_PlatnikId = {$customer_id}
-                            AND d.dok_DataWyst <= '{$invoice_date}'
-                            AND d.dok_Status >= 0
-                            ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
-                    
-                    $data = MSSql::getInstance()->query($sql);
-                }
-            }
             
             if (!empty($data) && isset($data[0])) {
                 return [
                     'wz_id' => $data[0]['dok_Id'],
                     'wz_ref' => $data[0]['dok_NrPelny'],
-                    'wz_date' => $data[0]['dok_DataWyst'],
+                    'wz_date' => $this->formatDateForResponse($data[0]['dok_DataWyst']),
                     'wz_amount' => $data[0]['dok_WartBrutto'],
                     'wz_status' => $data[0]['dok_Status']
                 ];
@@ -648,8 +647,8 @@ class Document extends SubiektObj
                     'amount' => $row['dok_WartBrutto'],
                     'amount_net' => $row['dok_WartNetto'],
                     'amount_vat' => $row['dok_WartVat'],
-                    'date_issue' => $row['dok_DataWyst'],
-                    'date_of_delivery' => $row['dok_TerminRealizacji'],
+                    'date_issue' => $this->formatDateForResponse($row['dok_DataWyst']),
+                    'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                     'status' => $row['dok_Status'],
                     'accounting_state' => $row['dok_StatusKsieg'],
                     'comments' => $row['dok_Uwagi'],
@@ -786,8 +785,8 @@ class Document extends SubiektObj
                         'amount' => $row['dok_WartBrutto'],
                         'amount_net' => $row['dok_WartNetto'],
                         'amount_vat' => $row['dok_WartVat'],
-                        'date_issue' => $row['dok_DataWyst'],
-                        'date_of_delivery' => $row['dok_TerminRealizacji'],
+                        'date_issue' => $this->formatDateForResponse($row['dok_DataWyst']),
+                        'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                         'status' => $row['dok_Status'],
                         'accounting_state' => $row['dok_StatusKsieg'],
                         'comments' => $row['dok_Uwagi'],
@@ -963,8 +962,8 @@ class Document extends SubiektObj
                     'amount' => $row['dok_WartBrutto'],
                     'amount_net' => $row['dok_WartNetto'],
                     'amount_vat' => $row['dok_WartVat'],
-                    'date_issue' => $row['dok_DataWyst'],
-                    'date_of_delivery' => $row['dok_TerminRealizacji'],
+                    'date_issue' => $this->formatDateForResponse($row['dok_DataWyst']),
+                    'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                     'status' => $row['dok_Status'],
                     'accounting_state' => $row['dok_StatusKsieg'],
                     'comments' => $row['dok_Uwagi'],
@@ -996,7 +995,7 @@ class Document extends SubiektObj
                 }
                 
                 // Dla faktur (FS) dodajemy informacje o powiązanym zamówieniu
-                if ($row['dok_Typ'] == 2 && $row['dok_PrzetworzonoZKwZD'] == 1) { // FS przetworzona z zamówienia
+                if ($row['dok_Typ'] == 2 && isset($row['dok_PrzetworzonoZKwZD']) && (int)$row['dok_PrzetworzonoZKwZD'] === 1) { // FS przetworzona z zamówienia
                     $related_order = $this->getRelatedOrderForInvoice($row['dok_Id']);
                     if ($related_order) {
                         $document['related_order'] = $related_order;
@@ -1162,9 +1161,9 @@ class Document extends SubiektObj
                     'amount_vat' => $row['dok_WartVat'],
                     'amount_to_pay' => $amount_to_pay,
                     'is_unpaid' => $is_unpaid,
-                    'date_issue' => $row['dok_DataWyst'],
-                    'date_of_delivery' => $row['dok_TerminRealizacji'],
-                    'payment_term' => $row['dok_PlatTermin'],
+                    'date_issue' => $this->formatDateForResponse($row['dok_DataWyst']),
+                    'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
+                    'payment_term' => isset($row['dok_PlatTermin']) ? (($row['dok_PlatTermin'] instanceof \DateTimeInterface) ? $row['dok_PlatTermin']->format('Y-m-d') : $row['dok_PlatTermin']) : null,
                     'status' => $row['dok_Status'],
                     'accounting_state' => $row['dok_StatusKsieg'],
                     'comments' => $row['dok_Uwagi'],

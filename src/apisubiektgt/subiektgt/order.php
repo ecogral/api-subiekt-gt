@@ -40,11 +40,17 @@ class Order extends SubiektObj
         parent::__construct($subiektGt, $orderDetail);
         $this->excludeAttr(array('orderGt', 'orderDetail', 'pay_type', 'create_product_if_not_exists'));
 
-
-        if ($this->order_ref != '' && $subiektGt->SuDokumentyManager->Istnieje($this->order_ref)) {
-            $this->orderGt = $subiektGt->SuDokumentyManager->Wczytaj($this->order_ref);
-            $this->getGtObject();
-            $this->is_exists = true;
+        if ($this->order_ref != '') {
+            $exists = $subiektGt->SuDokumentyManager->Istnieje($this->order_ref);
+            Logger::getInstance()->log('api', 'Order konstruktor: order_ref=' . $this->order_ref . ', Istnieje=' . ($exists ? 'tak' : 'nie'), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            if ($exists) {
+                $this->orderGt = $subiektGt->SuDokumentyManager->Wczytaj($this->order_ref);
+                $this->getGtObject();
+                $this->is_exists = true;
+                Logger::getInstance()->log('api', 'Order wczytany z Subiekta, gt_id=' . $this->gt_id . ', pozycji=' . $this->orderGt->Pozycje->Liczba(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            }
+        } else {
+            Logger::getInstance()->log('api', 'Order konstruktor: brak order_ref w danych', __CLASS__ . '->' . __FUNCTION__, __LINE__);
         }
         $this->orderDetail = $orderDetail;
     }
@@ -61,17 +67,137 @@ class Order extends SubiektObj
         if (isset($product['supplier_code']) && strlen($product['supplier_code']) > 0) {
             $p->setProductSupplierCode($product['supplier_code']);
         }
-//        var_dump($p_data);
         $code = sprintf('%s', $p_data['code']);
 
-        $position = $this->orderGt->Pozycje->Dodaj($code);
+        Logger::getInstance()->log('api', 'addPosition: przed Pozycje->Dodaj code=' . $code, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        try {
+            $position = $this->orderGt->Pozycje->Dodaj($code);
+            Logger::getInstance()->log('api', 'addPosition: po Dodaj code=' . $code . ', Liczba()=' . $this->orderGt->Pozycje->Liczba(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        } catch (\Exception $e) {
+            Logger::getInstance()->log('api', 'addPosition: BŁĄD Dodaj(' . $code . '): ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            throw $e;
+        }
+
         $position->IloscJm = intval($product['qty']);
         $position->WartoscBruttoPoRabacie = floatval($product['price']) * intval($product['qty']);
-        if (floatval($product['price_before_discount']) > 0) {
+        if (isset($product['price_before_discount']) && floatval($product['price_before_discount']) > 0) {
             $position->WartoscBruttoPrzedRabatem = floatval($product['price_before_discount']) * intval($product['qty']);
         }
-        Logger::getInstance()->log('api', 'Dodaje pozycje o kodzie: ' . $code, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        Logger::getInstance()->log('api', 'addPosition: pozycja ustawiona code=' . $code, __CLASS__ . '->' . __FUNCTION__, __LINE__);
         return $position;
+    }
+
+    /**
+     * Aktualizuje istniejącą pozycję (ilość, wartości) – bez usuwania.
+     */
+    protected function updatePositionInPlace($position, $product)
+    {
+        $qty = intval($product['qty']);
+        $position->IloscJm = $qty;
+        $position->WartoscBruttoPoRabacie = floatval($product['price']) * $qty;
+        if (isset($product['price_before_discount']) && floatval($product['price_before_discount']) > 0) {
+            $position->WartoscBruttoPrzedRabatem = floatval($product['price_before_discount']) * $qty;
+        }
+    }
+
+    /**
+     * Synchronizuje pozycje zamówienia z listą products: aktualizuje istniejące po code, dodaje nowe, usuwa zbędne.
+     * Unika masowego Usun() – w typowym przypadku (dodanie drugiej pozycji) nie wywołuje Usun w ogóle.
+     */
+    protected function syncPositionsWithProducts($products)
+    {
+        $requestedByCode = [];
+        foreach ($products as $p) {
+            $code = isset($p['code']) ? trim((string)$p['code']) : '';
+            if ($code === '') {
+                continue;
+            }
+            $pObj = new Product($this->subiektGt, $p);
+            if (!$pObj->isExists()) {
+                throw new Exception('Nie odnaleziono towaru o podanym kodzie: ' . $p['code']);
+            }
+            $pData = $pObj->get();
+            $normalizedCode = (string)$pData['code'];
+            $requestedByCode[$normalizedCode] = $p;
+        }
+
+        $numPos = $this->orderGt->Pozycje->Liczba();
+        Logger::getInstance()->log('api', 'syncPositions: pozycji w dokumencie=' . $numPos . ', żądanych (unikalnych kodów)=' . count($requestedByCode), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+        $indicesToRemove = [];
+        for ($i = 1; $i <= $numPos; $i++) {
+            $pos = $this->orderGt->Pozycje->Element($i);
+            $symbol = isset($pos->TowarSymbol) ? trim((string)$pos->TowarSymbol) : '';
+            if ($symbol === '') {
+                continue;
+            }
+            if (isset($requestedByCode[$symbol])) {
+                Logger::getInstance()->log('api', 'syncPositions: aktualizuję pozycję ' . $i . ' code=' . $symbol, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                $this->updatePositionInPlace($pos, $requestedByCode[$symbol]);
+                unset($requestedByCode[$symbol]);
+            } else {
+                $indicesToRemove[] = $i;
+            }
+        }
+
+        if (count($indicesToRemove) > 0) {
+            Logger::getInstance()->log('api', 'syncPositions: do usunięcia indeksy (od końca)=' . implode(',', $indicesToRemove), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            for ($k = count($indicesToRemove) - 1; $k >= 0; $k--) {
+                $idx = $indicesToRemove[$k];
+                try {
+                    Logger::getInstance()->log('api', 'syncPositions: wywołuję Usun dla indeksu ' . $idx, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                    if (method_exists($this->orderGt->Pozycje, 'Usun')) {
+                        $this->orderGt->Pozycje->Usun($idx);
+                    } else {
+                        $this->orderGt->Pozycje->Element($idx)->Usun();
+                    }
+                    Logger::getInstance()->log('api', 'syncPositions: Usun(' . $idx . ') OK, Liczba()=' . $this->orderGt->Pozycje->Liczba(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                    $this->orderGt->Przelicz();
+                    $this->orderGt->Zapisz();
+                    Logger::getInstance()->log('api', 'syncPositions: po Usun Przelicz+Zapisz OK', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                } catch (\Exception $e) {
+                    Logger::getInstance()->log('api', 'syncPositions: Usun(' . $idx . ') BŁĄD: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                    throw $e;
+                }
+            }
+        }
+
+        foreach ($requestedByCode as $code => $p) {
+            Logger::getInstance()->log('api', 'syncPositions: dodaję nową pozycję code=' . $code, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $add_position = $this->addPosition($p);
+            if (!$add_position) {
+                throw new Exception('Nie odnaleziono towaru o podanym kodzie: ' . $code);
+            }
+        }
+        Logger::getInstance()->log('api', 'syncPositions: koniec, Liczba()=' . $this->orderGt->Pozycje->Liczba(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+    }
+
+    /**
+     * Usuwa wszystkie pozycje z zamówienia (używane tylko gdy products=[]).
+     */
+    protected function clearAllPositions()
+    {
+        $initial = $this->orderGt->Pozycje->Liczba();
+        Logger::getInstance()->log('api', 'clearAllPositions: start, liczba pozycji=' . $initial, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        $count = 0;
+        while ($this->orderGt->Pozycje->Liczba() > 0) {
+            try {
+                Logger::getInstance()->log('api', 'clearAllPositions: przed Usun(1)', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                if (method_exists($this->orderGt->Pozycje, 'Usun')) {
+                    $this->orderGt->Pozycje->Usun(1);
+                } else {
+                    $this->orderGt->Pozycje->Element(1)->Usun();
+                }
+                $count++;
+                $this->orderGt->Przelicz();
+                $this->orderGt->Zapisz();
+                Logger::getInstance()->log('api', 'clearAllPositions: po Usun+Przelicz+Zapisz, usunięto=' . $count, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            } catch (\Exception $e) {
+                Logger::getInstance()->log('api', 'clearAllPositions błąd: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                throw $e;
+            }
+        }
+        Logger::getInstance()->log('api', 'clearAllPositions: koniec, usunięto=' . $count, __CLASS__ . '->' . __FUNCTION__, __LINE__);
     }
 
     protected function setGtObject()
@@ -194,18 +320,18 @@ class Order extends SubiektObj
         $this->gt_id = $this->orderGt->Identyfikator;
         $o = $this->getOrderById($this->gt_id);
 
-        $this->reference = $o['dok_NrPelnyOryg'];
+        $this->reference = $o['dok_NrPelnyOryg'] ?? '';
         $this->doc_type = $this->doc_types[$this->orderGt->Typ];
-        $this->selling_doc = $o['pow_NrPelny'];
-        $this->comments = $o['dok_Uwagi'];
-        $this->order_ref = $o['dok_NrPelny'];
-        $this->reservation = $o['statusrez'];
-        $this->state = $o['dok_Status'];
-        $this->amount = $o['dok_WartBrutto'];
-        $this->date_of_delivery = $o['dok_TerminRealizacji'];
-        $this->order_processing = $o['ss_PrzetworzonoZKwZD'];
-        $this->id_flag = $o['flg_Id'];
-        $this->flag_txt = $o['flg_Text'];
+        $this->selling_doc = $o['pow_NrPelny'] ?? '';
+        $this->comments = $o['dok_Uwagi'] ?? '';
+        $this->order_ref = $o['dok_NrPelny'] ?? '';
+        $this->reservation = $o['statusrez'] ?? 0;
+        $this->state = $o['dok_Status'] ?? 0;
+        $this->amount = $o['dok_WartBrutto'] ?? 0;
+        $this->date_of_delivery = $o['dok_TerminRealizacji'] ?? null;
+        $this->order_processing = $o['ss_PrzetworzonoZKwZD'] ?? $o['dok_PrzetworzonoZKwZD'] ?? 0;
+        $this->id_flag = $o['flg_Id'] ?? null;
+        $this->flag_txt = $o['flg_Text'] ?? '';
 
         $customer = Customer::getCustomerById($this->orderGt->KontrahentId);
         $this->customer = $customer;
@@ -234,21 +360,29 @@ class Order extends SubiektObj
 
     protected function getOrderById($id)
     {
-        $sql = "SELECT * FROM vwDok4ZamGrid  as d
-				LEFT JOIN fl_Wartosc as fw ON (fw.flw_IdObiektu = d.dok_Id)
-				LEFT JOIN fl__Flagi as f ON (f.flg_Id = fw.flw_IdFlagi)
-				WHERE dok_Id = {$id}
-		";
+        $sql = "SELECT d.dok_Id, d.dok_NrPelnyOryg, d.dok_Uwagi, d.dok_NrPelny, d.dok_Status,
+                       d.dok_WartBrutto, d.dok_TerminRealizacji, d.dok_PrzetworzonoZKwZD,
+                       fw.flw_IdFlagi as flg_Id, f.flg_Text
+                FROM dok__Dokument d
+                LEFT JOIN fl_Wartosc as fw ON (fw.flw_IdObiektu = d.dok_Id)
+                LEFT JOIN fl__Flagi as f ON (f.flg_Id = fw.flw_IdFlagi)
+                WHERE d.dok_Id = {$id}";
         $data = MSSql::getInstance()->query($sql);
-        return $data[0];
+        if (empty($data)) {
+            return [];
+        }
+        $row = $data[0];
+        $row['ss_PrzetworzonoZKwZD'] = $row['dok_PrzetworzonoZKwZD'] ?? 0;
+        $row['statusrez'] = 0;
+        return $row;
     }
 
 
     protected function getOrderAmountById($id)
     {
-        $sql = "SELECT dok_WartBrutto FROM vwDok4ZamGrid WHERE dok_Id = {$id}";
+        $sql = "SELECT dok_WartBrutto FROM dok__Dokument WHERE dok_Id = {$id}";
         $data = MSSql::getInstance()->query($sql);
-        if (!is_array($data)) {
+        if (!is_array($data) || empty($data)) {
             return false;
         }
         return $data[0]['dok_WartBrutto'];
@@ -348,9 +482,98 @@ class Order extends SubiektObj
 }
 
 
+    /**
+     * Aktualizuje istniejące zamówienie: nagłówek (reference, comments, reservation, amount)
+     * oraz pozycje, jeśli w data podano tablicę products.
+     * products = pełna lista pozycji (kod, qty, price, opcjonalnie price_before_discount, supplier_code) – zastępuje całą listę.
+     *
+     * @return array ['order_ref' => string, 'order_amount' => float, 'positions_count' => int] lub wyjątek
+     */
     public function update()
     {
-        return true;
+        Logger::getInstance()->log('api', 'update: start, order_ref=' . ($this->order_ref ?? '(null)') . ', is_exists=' . ($this->is_exists ? '1' : '0') . ', order_processing=' . ($this->order_processing ? '1' : '0'), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+        if (!$this->order_ref) {
+            Logger::getInstance()->log('api', 'update: odrzucono – brak order_ref', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            throw new Exception('Brak parametru order_ref – nie można zidentyfikować zamówienia do edycji.');
+        }
+        if (!$this->is_exists || !$this->orderGt) {
+            Logger::getInstance()->log('api', 'update: odrzucono – zamówienie nie wczytane (is_exists=' . ($this->is_exists ? '1' : '0') . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            throw new Exception('Zamówienie nie istnieje lub nie udało się go wczytać: ' . $this->order_ref);
+        }
+        if ($this->order_processing) {
+            Logger::getInstance()->log('api', 'update: odrzucono – zamówienie już przetworzone', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            throw new Exception('Nie można edytować zamówienia już przetworzonego na dokument sprzedaży: ' . $this->order_ref);
+        }
+
+        $products = isset($this->orderDetail['products']) && is_array($this->orderDetail['products'])
+            ? $this->orderDetail['products']
+            : null;
+
+        $productsCount = $products === null ? 'null' : count($products);
+        Logger::getInstance()->log('api', 'update: products w data = ' . $productsCount . ($products !== null && count($products) > 0 ? ', pierwszy code=' . (isset($products[0]['code']) ? $products[0]['code'] : '?') : ''), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+        if ($products !== null && count($products) > 0) {
+            Logger::getInstance()->log('api', 'update: synchronizuję pozycje (aktualizacja wg code + dodawanie nowych)', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $this->syncPositionsWithProducts($products);
+        } elseif ($products !== null && count($products) === 0) {
+            Logger::getInstance()->log('api', 'update: products=[] – usuwam wszystkie pozycje', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $this->clearAllPositions();
+        } else {
+            Logger::getInstance()->log('api', 'update: brak products w data – tylko aktualizacja nagłówka', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        }
+
+        Logger::getInstance()->log('api', 'update: wywołuję Przelicz(), pozycji przed=' . $this->orderGt->Pozycje->Liczba(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        $this->orderGt->Przelicz();
+        $this->amount = $this->orderGt->WartoscBrutto;
+        Logger::getInstance()->log('api', 'update: po Przelicz WartoscBrutto=' . $this->amount, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+        // Pełna treść uwag z żądania (UTF-8, bez ucinania) + dopisanie nr przesyłki (bez duplikatu)
+        $comments = isset($this->orderDetail['comments']) ? (string)$this->orderDetail['comments'] : '';
+        // Usuń ewentualną istniejącą linię "Nr przesyłki: ...", żeby nie dublować przy kolejnej aktualizacji
+        $lines = preg_split('/\r\n|\r|\n/', $comments);
+        $lines = array_filter($lines, function ($line) {
+            return stripos(trim($line), 'Nr przesyłki:') !== 0;
+        });
+        $comments = trim(implode("\n", $lines));
+        if (!empty($this->orderDetail['shipment_number'])) {
+            $comments .= "\nNr przesyłki: " . trim((string)$this->orderDetail['shipment_number']);
+        }
+        // Nowa linia przed "Adres dostawy:" i "Nr przesyłki:" gdy przyszło wszystko w jednej linii
+        $comments = preg_replace('/(?<!\n)(Adres dostawy:)/u', "\n$1", $comments);
+        $comments = preg_replace('/(?<!\n)(Nr przesyłki:)/u', "\n$1", $comments);
+        // Znaki nowej linii w formacie Windows (CRLF), żeby Subiekt GT wyświetlał każdą sekcję w nowej linii
+        $comments = str_replace(["\r\n", "\r"], "\n", $comments);
+        $comments = str_replace("\n", "\r\n", $comments);
+        // Subiekt GT oczekuje ISO-8859-2 (tak jak w Helper::toWin w całym projekcie)
+        if ($comments !== '') {
+            $this->comments = Helper::toWin($comments);
+        }
+        if (isset($this->orderDetail['reference']) && (string)$this->orderDetail['reference'] !== '') {
+            $this->reference = Helper::toWin((string)$this->orderDetail['reference']);
+        }
+
+        $commentsPreview = isset($this->orderDetail['comments']) ? substr((string)$this->orderDetail['comments'], 0, 50) : '';
+        Logger::getInstance()->log('api', 'update: setGtObject (reference=' . ($this->reference ?? '') . ', comments=' . $commentsPreview . ', shipment_number=' . (isset($this->orderDetail['shipment_number']) ? 'tak' : 'nie') . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        $this->setGtObject();
+
+        try {
+            Logger::getInstance()->log('api', 'update: wywołuję Zapisz() dla ' . $this->order_ref, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $this->orderGt->Zapisz();
+            Logger::getInstance()->log('api', 'update: Zapisz() zakończone OK', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        } catch (\Exception $e) {
+            Logger::getInstance()->log('api', 'update: Zapisz() BŁĄD: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            throw $e;
+        }
+
+        $positions_count = $this->orderGt->Pozycje->Liczba();
+        Logger::getInstance()->log('api', 'update: sukces, order_ref=' . $this->order_ref . ', order_amount=' . $this->amount . ', positions_count=' . $positions_count, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+        return [
+            'order_ref' => $this->order_ref,
+            'order_amount' => $this->amount,
+            'positions_count' => $positions_count
+        ];
     }
 
     public function getGt()
