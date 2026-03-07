@@ -509,17 +509,21 @@ class Order extends SubiektObj
         $products = isset($this->orderDetail['products']) && is_array($this->orderDetail['products'])
             ? $this->orderDetail['products']
             : null;
+        $clearAllPositions = !empty($this->orderDetail['clear_all_positions']);
 
         $productsCount = $products === null ? 'null' : count($products);
-        Logger::getInstance()->log('api', 'update: products w data = ' . $productsCount . ($products !== null && count($products) > 0 ? ', pierwszy code=' . (isset($products[0]['code']) ? $products[0]['code'] : '?') : ''), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        Logger::getInstance()->log('api', 'update: products w data = ' . $productsCount . ', clear_all_positions = ' . ($clearAllPositions ? 'tak' : 'nie') . ($products !== null && count($products) > 0 ? ', pierwszy code=' . (isset($products[0]['code']) ? $products[0]['code'] : '?') : ''), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+        // Usuń wszystkie pozycje: gdy products=[] LUB gdy zewnętrzna aplikacja wysłała clear_all_positions: true
+        if ($clearAllPositions || ($products !== null && count($products) === 0)) {
+            Logger::getInstance()->log('api', 'update: usuwam wszystkie pozycje (products puste lub clear_all_positions=true)', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $this->clearAllPositions();
+        }
 
         if ($products !== null && count($products) > 0) {
             Logger::getInstance()->log('api', 'update: synchronizuję pozycje (aktualizacja wg code + dodawanie nowych)', __CLASS__ . '->' . __FUNCTION__, __LINE__);
             $this->syncPositionsWithProducts($products);
-        } elseif ($products !== null && count($products) === 0) {
-            Logger::getInstance()->log('api', 'update: products=[] – usuwam wszystkie pozycje', __CLASS__ . '->' . __FUNCTION__, __LINE__);
-            $this->clearAllPositions();
-        } else {
+        } elseif (!$clearAllPositions && $products === null) {
             Logger::getInstance()->log('api', 'update: brak products w data – tylko aktualizacja nagłówka', __CLASS__ . '->' . __FUNCTION__, __LINE__);
         }
 
