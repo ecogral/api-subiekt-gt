@@ -7,7 +7,16 @@ require_once(dirname(__FILE__).'/../init.php');
 $cfg = new Config(CONFIG_INI_FILE);
 $cfg->load();
 
-$api_url = $_SERVER['SERVER_NAME'].str_replace('setup/test.php','api/document/get',$_SERVER['REQUEST_URI']);
+// Build absolute API URL with proper scheme and host:port.
+// SERVER_NAME does not include port, which caused cURL to default to :80.
+$isHttps = (
+    (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] === '443')
+);
+$scheme = $isHttps ? 'https' : 'http';
+$host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'];
+$apiPath = str_replace('setup/test.php', 'api/document/get', $_SERVER['REQUEST_URI']);
+$api_url = $scheme . '://' . $host . $apiPath;
 if(Helper::getIsset('testdoc')){
 	// The data to send to the API
 	$postData = array(
