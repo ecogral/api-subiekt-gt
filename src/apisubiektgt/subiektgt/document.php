@@ -32,6 +32,166 @@ class Document extends SubiektObj
     protected $flag_name = '';
     protected $flag_comment = '';
 
+    /** Od tej daty (dok_DataWyst FS) zwracane są wyłącznie faktury z nadanym numerem KSeF w tabeli ksef_NumerKSeF (ksefnr_NumerKSeF), powiązanie dok_NumerKSeFId — wg dokumentacji struktury bazy Subiekt GT. */
+    const KSEF_FS_FILTER_FROM = '2026-04-01';
+
+    protected function sqlLeftJoinKsefNumer($docAlias = 'd', $alias = 'ksef_nr')
+    {
+        return "LEFT JOIN ksef_NumerKSeF AS {$alias} ON {$alias}.ksefnr_Id = {$docAlias}.dok_NumerKSeFId";
+    }
+
+    /**
+     * Warunek WHERE dla samych faktur sprzedaży (dok_Typ = 2): przed cutoff bez zmian, od cutoff — wymagany niepusty numer w ksef_NumerKSeF.
+     */
+    protected function sqlWhereFsKsefRequiredFromCutoff($docAlias = 'd', $ksefAlias = 'ksef_nr')
+    {
+        $from = self::KSEF_FS_FILTER_FROM;
+        return "(
+        {$docAlias}.dok_DataWyst < CAST('{$from}' AS datetime)
+        OR ({$ksefAlias}.ksefnr_NumerKSeF IS NOT NULL AND LTRIM(RTRIM({$ksefAlias}.ksefnr_NumerKSeF)) <> '')
+    )";
+    }
+
+    /**
+     * To samo przy zapytaniach z wieloma typami dokumentów — dotyczy tylko wierszy FS (dok_Typ = 2).
+     */
+    protected function sqlWhereFsKsefWhenMixedDocTypes($docAlias = 'd', $ksefAlias = 'ksef_nr')
+    {
+        $from = self::KSEF_FS_FILTER_FROM;
+        return "(
+        {$docAlias}.dok_Typ <> 2
+        OR {$docAlias}.dok_DataWyst < CAST('{$from}' AS datetime)
+        OR ({$ksefAlias}.ksefnr_NumerKSeF IS NOT NULL AND LTRIM(RTRIM({$ksefAlias}.ksefnr_NumerKSeF)) <> '')
+    )";
+    }
+
+    protected function ksefFieldsFromRow(array $row)
+    {
+        if (!array_key_exists('ksef_numer', $row)) {
+            return [];
+        }
+        $n = $row['ksef_numer'];
+        $num = ($n !== null && trim((string) $n) !== '') ? trim((string) $n) : null;
+        return [
+            'ksef_number' => $num,
+            'ksef_number_assigned_at' => $this->formatDateForResponse(isset($row['ksef_data_nadania']) ? $row['ksef_data_nadania'] : null),
+        ];
+    }
+
+    /**
+     * Czy dokument handlowy ma nadany numer KSeF w ksef_NumerKSeF (powiązanie dok_NumerKSeFId).
+     */
+    protected function dokHanHasAssignedKsef($dokId)
+    {
+        $dokId = (int) $dokId;
+        if ($dokId <= 0) {
+            return false;
+        }
+        $sql = "SELECT 1 AS ok FROM dok__Dokument d
+            INNER JOIN ksef_NumerKSeF k ON k.ksefnr_Id = d.dok_NumerKSeFId
+            WHERE d.dok_Id = {$dokId}
+            AND k.ksefnr_NumerKSeF IS NOT NULL AND LTRIM(RTRIM(k.ksefnr_NumerKSeF)) <> ''";
+        try {
+            $data = MSSql::getInstance()->query($sql);
+            return !empty($data);
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'KSeF PDF: nie można sprawdzić numeru KSeF: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return false;
+        }
+    }
+
+    /**
+     * Opcjonalne klucze w pliku INI (parse_ini → Config): ksef_pdf_template_fs, ksef_pdf_template_kfs, ksef_pdf_template_id (wspólny).
+     * Wartość = wzw_Id z tabeli wy_Wzorzec (wzorce wydruku KSeF).
+     */
+    protected function getKsefPdfTemplateIdFromCfg()
+    {
+        if (!$this->cfg || !is_object($this->cfg)) {
+            return null;
+        }
+        $typ = (int) $this->doc_type_id;
+        $keys = array();
+        if ($typ === 2) {
+            $keys[] = 'ksef_pdf_template_fs';
+        }
+        if ($typ === 6) {
+            $keys[] = 'ksef_pdf_template_kfs';
+        }
+        $keys[] = 'ksef_pdf_template_id';
+        foreach ($keys as $key) {
+            if (!isset($this->cfg->{$key})) {
+                continue;
+            }
+            $v = $this->cfg->{$key};
+            if ($v === '' || $v === null) {
+                continue;
+            }
+            if (is_numeric($v) && (int) $v > 0) {
+                return (int) $v;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Próba znalezienia wzorca KSeF w wy_Wzorzec (nazwa zawiera „KSeF”) w tej samej grupie typu (wy_Typ) co domyślny wzorzec dla FS/KFS.
+     */
+    protected function findAutoKsefWydrukWzorzecId()
+    {
+        $typ = (int) $this->doc_type_id;
+        if ($typ !== 2 && $typ !== 6) {
+            return null;
+        }
+        $sql = "SELECT TOP 1 w.wzw_Id AS id
+            FROM wy_Wzorzec w
+            WHERE w.wzw_Widoczny = 1
+            AND (w.wzw_Nazwa LIKE N'%KSeF%' OR w.wzw_Nazwa LIKE N'%KSEF%')
+            AND EXISTS (
+                SELECT 1 FROM wy_WzDomyslny z
+                INNER JOIN wy_Wzorzec w0 ON w0.wzw_Id = z.wzd_WzorzecId
+                WHERE z.wzd_Typ = {$typ} AND w0.wzw_Typ = w.wzw_Typ
+            )
+            ORDER BY w.wzw_Id DESC";
+        try {
+            $data = MSSql::getInstance()->query($sql);
+            if (!empty($data) && isset($data[0]['id']) && (int) $data[0]['id'] > 0) {
+                return (int) $data[0]['id'];
+            }
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'KSeF PDF: auto wzorzec: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        }
+        return null;
+    }
+
+    /**
+     * Generuje PDF przez Sferę: dla dokumentów z numerem KSeF — DrukujDoPlikuWgWzorca (wzór KSeF), inaczej DrukujDoPliku (domyślny).
+     * gtaTypPlikuPDF = 0 (pomoc Sfery: TypPlikuEnum).
+     */
+    protected function printDocumentToPdfFile($file_name)
+    {
+        $useKsef = $this->dokHanHasAssignedKsef($this->gt_id);
+        if (!$useKsef) {
+            $this->documentGt->DrukujDoPliku($file_name, 0);
+            return 'standard';
+        }
+        $wzorzecId = $this->getKsefPdfTemplateIdFromCfg();
+        if ($wzorzecId === null) {
+            $wzorzecId = $this->findAutoKsefWydrukWzorzecId();
+        }
+        if ($wzorzecId === null) {
+            Logger::getInstance()->log('api', 'KSeF PDF: brak wzorca (ustaw ksef_pdf_template_fs/kfs lub ksef_pdf_template_id w INI) — używam DrukujDoPliku.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $this->documentGt->DrukujDoPliku($file_name, 0);
+            return 'standard_fallback';
+        }
+        try {
+            $this->documentGt->DrukujDoPlikuWgWzorca($wzorzecId, $file_name, 0);
+            return 'ksef';
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'KSeF PDF: DrukujDoPlikuWgWzorca nie powiodło się (' . $e->getMessage() . ') — fallback DrukujDoPliku.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $this->documentGt->DrukujDoPliku($file_name, 0);
+            return 'standard_fallback';
+        }
+    }
 
     public function __construct($subiektGt, $documentDetail = array())
     {
@@ -56,10 +216,10 @@ class Document extends SubiektObj
         $temp_dir = sys_get_temp_dir();
         if ($this->is_exists) {
             $file_name = $temp_dir . '/' . $this->gt_id . '.pdf';
-            $this->documentGt->DrukujDoPliku($file_name, 0);
+            $pdf_variant = $this->printDocumentToPdfFile($file_name);
             $pdf_file = file_get_contents($file_name);
             unlink($file_name);
-            Logger::getInstance()->log('api', 'Wygenerowano pdf dokumentu: ' . $this->doc_ref, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', 'Wygenerowano pdf dokumentu: ' . $this->doc_ref . ' (wariant=' . $pdf_variant . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return array('encoding' => 'base64',
                 'doc_ref' => $this->doc_ref,
                 'is_exists' => $this->is_exists,
@@ -67,6 +227,7 @@ class Document extends SubiektObj
                 'state' => $this->state,
                 'accounting_state' => $this->accounting_state,
                 'doc_type' => $this->doc_type,
+                'pdf_variant' => $pdf_variant,
                 'pdf_file' => base64_encode($pdf_file));
         }
         return false;
@@ -364,20 +525,24 @@ class Document extends SubiektObj
                     k.adr_Kod as post_code,
                     k.adr_Miejscowosc as city,
                     k.kh_EMail as email,
-                    k.adr_Telefon as phone
+                    k.adr_Telefon as phone,
+                    ksef_nr.ksefnr_NumerKSeF AS ksef_numer,
+                    ksef_nr.ksefnr_DataNadania AS ksef_data_nadania
                 FROM dok__Dokument d
                 LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                " . $this->sqlLeftJoinKsefNumer('d', 'ksef_nr') . "
                 WHERE d.dok_Typ = 2 
                 AND d.dok_StatusKsieg = 0
                 AND d.dok_Status >= 0
                 AND d.dok_KwDoZaplaty > 0
-                AND d.dok_Rozliczony = 0";
+                AND d.dok_Rozliczony = 0
+                AND " . $this->sqlWhereFsKsefRequiredFromCutoff('d', 'ksef_nr');
 
             $data = MSSql::getInstance()->query($sql);
             $result = [];
 
             foreach ($data as $row) {
-                $result[] = [
+                $item = [
                     'doc_ref' => $row['dok_NrPelny'],
                     'amount' => $row['dok_WartBrutto'],
                     'amount_to_pay' => $row['amount_to_pay'],
@@ -397,6 +562,8 @@ class Document extends SubiektObj
                         'phone' => $row['phone']
                     ]
                 ];
+                $item = array_merge($item, $this->ksefFieldsFromRow($row));
+                $result[] = $item;
             }
 
             Logger::getInstance()->log('api', 'Pobrano listę nieopłaconych faktur', __CLASS__ . '->' . __FUNCTION__, __LINE__);
@@ -604,6 +771,12 @@ class Document extends SubiektObj
                 throw new Exception("Limit dokumentów musi być liczbą większą od 0");
             }
 
+            $ksefSelect = ($doc_type == 2 || $doc_type == 6)
+                ? ", ksef_nr.ksefnr_NumerKSeF AS ksef_numer, ksef_nr.ksefnr_DataNadania AS ksef_data_nadania"
+                : '';
+            $ksefJoin = ($doc_type == 2 || $doc_type == 6) ? "\n                " . $this->sqlLeftJoinKsefNumer('d', 'ksef_nr') : '';
+            $ksefAnd = ($doc_type == 2) ? "\n                AND " . $this->sqlWhereFsKsefRequiredFromCutoff('d', 'ksef_nr') : '';
+
             $sql = "SELECT TOP {$limit}
                     d.dok_Id,
                     d.dok_NrPelny,
@@ -625,10 +798,11 @@ class Document extends SubiektObj
                     k.adr_Miejscowosc,
                     k.kh_EMail,
                     k.adr_Telefon
+                    {$ksefSelect}
                 FROM dok__Dokument d
-                LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id{$ksefJoin}
                 WHERE d.dok_Typ = {$doc_type}
-                AND d.dok_Status >= 0
+                AND d.dok_Status >= 0{$ksefAnd}
                 ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
 
             $data = MSSql::getInstance()->query($sql);
@@ -675,6 +849,7 @@ class Document extends SubiektObj
                 // Dla dokumentów KFS (korekt) dodajemy numer dokumentu korygowanego
                 if ($doc_type == 6) { // KFS
                     $document['corrected_document_number'] = $row['dok_NrPelnyOryg'] ? $row['dok_NrPelnyOryg'] : null;
+                    $document = array_merge($document, $this->ksefFieldsFromRow($row));
                 }
                 
                 // Dla faktur (FS) dodajemy informacje o powiązanym zamówieniu
@@ -691,6 +866,7 @@ class Document extends SubiektObj
                     if ($related_wz) {
                         $document['related_wz'] = $related_wz;
                     }
+                    $document = array_merge($document, $this->ksefFieldsFromRow($row));
                 }
                 
                 $result[] = $document;
@@ -706,7 +882,7 @@ class Document extends SubiektObj
     }
 
     /**
-     * Pobiera wszystkie typy dokumentów z ostatnich 7 dni
+     * Pobiera wszystkie typy dokumentów od początku bieżącego miesiąca
      * 
      * @param int $limit Limit dokumentów na typ
      * @return array Wynik z dokumentami pogrupowanymi według typu
@@ -714,9 +890,9 @@ class Document extends SubiektObj
     public function getRecentDocuments($limit = 100)
     {
         try {
-            Logger::getInstance()->log('api', 'Rozpoczęcie pobierania ostatnich dokumentów z 7 dni', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', 'Rozpoczęcie pobierania dokumentów od początku bieżącego miesiąca', __CLASS__ . '->' . __FUNCTION__, __LINE__);
             
-            $seven_days_ago = date('Y-m-d', strtotime('-7 days'));
+            $first_day_of_month = date('Y-m-01');
             $today = date('Y-m-d');
             
             // Definicja typów dokumentów do pobrania
@@ -733,13 +909,19 @@ class Document extends SubiektObj
                 'summary' => [
                     'total_documents' => 0,
                     'date_range' => [
-                        'from' => $seven_days_ago,
+                        'from' => $first_day_of_month,
                         'to' => $today
                     ]
                 ]
             ];
             
             foreach ($doc_types as $type_id => $type_name) {
+                $ksefSelect = ($type_id == 2 || $type_id == 6)
+                    ? ", ksef_nr.ksefnr_NumerKSeF AS ksef_numer, ksef_nr.ksefnr_DataNadania AS ksef_data_nadania"
+                    : '';
+                $ksefJoin = ($type_id == 2 || $type_id == 6) ? "\n                    " . $this->sqlLeftJoinKsefNumer('d', 'ksef_nr') : '';
+                $ksefAnd = ($type_id == 2) ? "\n                    AND " . $this->sqlWhereFsKsefRequiredFromCutoff('d', 'ksef_nr') : '';
+
                 $sql = "SELECT TOP {$limit}
                         d.dok_Id,
                         d.dok_NrPelny,
@@ -761,12 +943,13 @@ class Document extends SubiektObj
                         k.adr_Miejscowosc,
                         k.kh_EMail,
                         k.adr_Telefon
+                        {$ksefSelect}
                     FROM dok__Dokument d
-                    LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                    LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id{$ksefJoin}
                     WHERE d.dok_Typ = {$type_id}
                     AND d.dok_Status >= 0
-                    AND d.dok_DataWyst >= '{$seven_days_ago}'
-                    AND d.dok_DataWyst <= '{$today}'
+                    AND d.dok_DataWyst >= '{$first_day_of_month}'
+                    AND d.dok_DataWyst <= '{$today}'{$ksefAnd}
                     ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
 
                 $data = MSSql::getInstance()->query($sql);
@@ -813,6 +996,7 @@ class Document extends SubiektObj
                     // Dla dokumentów KFS (korekt) dodajemy numer dokumentu korygowanego
                     if ($type_id == 6) { // KFS
                         $document['corrected_document_number'] = $row['dok_NrPelnyOryg'] ? $row['dok_NrPelnyOryg'] : null;
+                        $document = array_merge($document, $this->ksefFieldsFromRow($row));
                     }
                     
                     // Dla faktur (FS) dodajemy informacje o powiązanym zamówieniu
@@ -829,6 +1013,7 @@ class Document extends SubiektObj
                         if ($related_wz) {
                             $document['related_wz'] = $related_wz;
                         }
+                        $document = array_merge($document, $this->ksefFieldsFromRow($row));
                     }
                     
                     $documents[] = $document;
@@ -844,7 +1029,7 @@ class Document extends SubiektObj
                 $result['summary']['total_documents'] += count($documents);
             }
             
-            Logger::getInstance()->log('api', "Pobrano {$result['summary']['total_documents']} dokumentów z ostatnich 7 dni", __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', "Pobrano {$result['summary']['total_documents']} dokumentów od początku miesiąca", __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return $result;
             
         } catch (Exception $e) {
@@ -922,11 +1107,15 @@ class Document extends SubiektObj
                         k.adr_Kod,
                         k.adr_Miejscowosc,
                         k.kh_EMail,
-                        k.adr_Telefon
+                        k.adr_Telefon,
+                        ksef_nr.ksefnr_NumerKSeF AS ksef_numer,
+                        ksef_nr.ksefnr_DataNadania AS ksef_data_nadania
                     FROM dok__Dokument d
                     LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                    " . $this->sqlLeftJoinKsefNumer('d', 'ksef_nr') . "
                     WHERE d.dok_PlatnikId = {$customer_id}
                     AND d.dok_Typ IN (2, 6, 11, 16)  -- FS, KFS, WZ, ZK
+                    AND " . $this->sqlWhereFsKsefWhenMixedDocTypes('d', 'ksef_nr') . "
                     ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
             
             Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po dokumenty: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
@@ -988,6 +1177,9 @@ class Document extends SubiektObj
                     ],
                     'positions' => $positions
                 ];
+                if ((int) $row['dok_Typ'] === 2 || (int) $row['dok_Typ'] === 6) {
+                    $document = array_merge($document, $this->ksefFieldsFromRow($row));
+                }
                 
                 // Dla dokumentów KFS (korekt) dodajemy numer dokumentu korygowanego
                 if ($row['dok_Typ'] == 6) { // KFS
@@ -1057,8 +1249,9 @@ class Document extends SubiektObj
     }
 
     /**
-     * Pobiera faktury (FV) z określonego zakresu dat
-     * 
+     * Pobiera faktury (FV) z określonego zakresu dat.
+     * Od daty KSEF_FS_FILTER_FROM zwracane są wyłącznie faktury z niepustym numerem KSeF (tabela ksef_NumerKSeF).
+     *
      * @param string $date_from Data początkowa (format YYYY-MM-DD)
      * @param string $date_to Data końcowa (format YYYY-MM-DD)
      * @param int $limit Maksymalna liczba faktur do pobrania (domyślnie 1000)
@@ -1089,7 +1282,7 @@ class Document extends SubiektObj
                 throw new Exception("Limit musi być liczbą większą od 0");
             }
 
-            // Pobieramy faktury (typ 2) z zakresu dat
+            // Pobieramy faktury (typ 2) z zakresu dat; od KSEF_FS_FILTER_FROM — tylko z numerem w ksef_NumerKSeF
             $sql = "SELECT TOP {$limit}
                         d.dok_Id,
                         d.dok_NrPelny,
@@ -1116,15 +1309,19 @@ class Document extends SubiektObj
                         fw.flw_IdFlagi as flg_Id,
                         f.flg_Text,
                         fw.flw_IdGrupyFlag as flg_IdGrupy,
-                        fw.flw_Komentarz
+                        fw.flw_Komentarz,
+                        ksef_nr.ksefnr_NumerKSeF AS ksef_numer,
+                        ksef_nr.ksefnr_DataNadania AS ksef_data_nadania
                     FROM dok__Dokument d
                     LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
                     LEFT JOIN fl_Wartosc fw ON (fw.flw_IdObiektu = d.dok_Id)
                     LEFT JOIN fl__Flagi f ON (f.flg_Id = fw.flw_IdFlagi)
+                    " . $this->sqlLeftJoinKsefNumer('d', 'ksef_nr') . "
                     WHERE d.dok_Typ = 2  -- Faktura sprzedaży
                     AND d.dok_Status >= 0
                     AND d.dok_DataWyst >= '{$date_from}'
                     AND d.dok_DataWyst <= '{$date_to}'
+                    AND " . $this->sqlWhereFsKsefRequiredFromCutoff('d', 'ksef_nr') . "
                     ORDER BY d.dok_DataWyst DESC, d.dok_Id DESC";
             
             Logger::getInstance()->log('api', 'Wykonuję zapytanie SQL po faktury: ' . $sql, __CLASS__ . '->' . __FUNCTION__, __LINE__);
@@ -1188,6 +1385,7 @@ class Document extends SubiektObj
                     ],
                     'positions' => $positions
                 ];
+                $invoice = array_merge($invoice, $this->ksefFieldsFromRow($row));
                 
                 // Dla faktur przetworzonych z zamówienia dodajemy informacje o powiązanym zamówieniu
                 if ($row['dok_PrzetworzonoZKwZD'] == 1) {
