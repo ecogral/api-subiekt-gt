@@ -32,6 +32,17 @@ class Customer extends SubiektObj
         Logger::getInstance()->log('debug', 'Tworzenie obiektu klienta: ' . json_encode($customerDetail), __CLASS__ . '->' . __FUNCTION__, __LINE__);
         $this->excludeAttr('customerGt');
 
+        // Wniosek o typie kontrahenta na podstawie danych wejściowych.
+        // Zewnętrzne integracje często nie wysyłają is_company, a mimo to podają NIP i nazwę firmy.
+        if (!$this->is_company) {
+            $looksLikeCompany =
+                (!empty($this->company_name)) ||
+                (!empty($this->tax_id) && strlen(preg_replace('/[^0-9A-Za-z]/', '', (string)$this->tax_id)) >= 10);
+            if ($looksLikeCompany) {
+                $this->is_company = true;
+            }
+        }
+
         // czyszczenie nipu ze znaków
         $clean_tax_id = preg_replace('/([  \-])/', '', $this->tax_id);
         // usuń kod kraju jeśli istnieje (np. PL)
@@ -61,6 +72,30 @@ class Customer extends SubiektObj
             $this->customerGt = $subiektGt->Kontrahenci->Wczytaj($this->ref_id);
             $this->getGtObject();
             $this->is_exists = true;
+        }
+
+        // Jeśli kontrahent istnieje i został wczytany, getGtObject() nadpisuje pola z payloadu
+        // danymi z Subiekta. Przy aktualizacji chcemy zachować wartości z requestu (tam gdzie podano).
+        if ($this->customerGt && !empty($customerDetail) && is_array($customerDetail)) {
+            $overrides = [
+                'email',
+                'ref_id',
+                'firstname',
+                'lastname',
+                'post_code',
+                'city',
+                'tax_id',
+                'company_name',
+                'address',
+                'address_no',
+                'phone',
+                'is_company',
+            ];
+            foreach ($overrides as $k) {
+                if (array_key_exists($k, $customerDetail)) {
+                    $this->{$k} = $customerDetail[$k];
+                }
+            }
         }
 
         // Jesli nie ma to tworzy
@@ -96,8 +131,7 @@ class Customer extends SubiektObj
 
     protected function setGtObject()
     {
-        $this->customerGt->Symbol = substr($this->ref_id, 0, 20);
-        if ($this->is_company && strlen($this->tax_id) >= 10) {
+        if ($this->is_company && strlen((string)$this->tax_id) >= 10) {
             if (strlen($this->company_name) == 0) {
                 throw new Exception('Nie można utworzyć klienta brak jego nazwy!');
             }
@@ -105,8 +139,6 @@ class Customer extends SubiektObj
             $this->customerGt->Nazwa = mb_substr($this->company_name, 0, 40);
             $this->customerGt->Osoba = 0;
             $this->customerGt->NIP = $this->tax_id;
-            
-            $this->customerGt->Symbol = $this->customerGt->NIP;
 
         } else {
             $this->customerGt->Osoba = 1;
@@ -114,8 +146,20 @@ class Customer extends SubiektObj
             $this->customerGt->OsobaNazwisko = substr($this->lastname, 0, 50);
             $this->customerGt->NazwaPelna = $this->firstname . ' ' . $this->lastname;
             $this->customerGt->NIP = $this->tax_id;
-            $this->customerGt->Symbol = $this->customerGt->NIP;
         }
+
+        // Symbol w Subiekcie bywa wymagany i nie może być pusty.
+        // Preferujemy NIP (jeśli jest), potem ref_id, a na końcu zostawiamy istniejący Symbol.
+        $candidateSymbol = null;
+        if (!empty($this->tax_id)) {
+            $candidateSymbol = (string)$this->tax_id;
+        } elseif (!empty($this->ref_id)) {
+            $candidateSymbol = (string)$this->ref_id;
+        }
+        if ($candidateSymbol !== null) {
+            $this->customerGt->Symbol = mb_substr($candidateSymbol, 0, 20);
+        }
+
         $this->customerGt->Email = $this->email;
         $this->customerGt->Miejscowosc = $this->city;
         $this->customerGt->KodPocztowy = substr($this->post_code, 0, 6);
@@ -248,6 +292,11 @@ class Customer extends SubiektObj
         $this->customerGt->Zapisz();
         Logger::getInstance()->log('api', 'Zaktualizowano klienta od klienta: ' . $this->customerGt->Symbol, __CLASS__ . '->' . __FUNCTION__, __LINE__);
         return true;
+    }
+
+    public function updateCustomer()
+    {
+        return $this->update();
     }
 
     public function getGt()
