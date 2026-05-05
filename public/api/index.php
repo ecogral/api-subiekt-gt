@@ -125,6 +125,10 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
+    } elseif ($className == 'Document' && $method == 'createIssueFromOrder') {
+        $obj = new $class($subiektGtCom, isset($json_request['data']) ? $json_request['data'] : []);
+        $obj->setCfg($cfg);
+        $json_response = $obj->createIssueFromOrder();
     } elseif ($className == 'Product' && $method == 'getStocks') {
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
@@ -186,7 +190,15 @@ try {
 } catch (Throwable $e) {
     $json_response['state'] = 'fail';
     $rawMessage = $e->getMessage();
-    $json_response['message'] = Helper::cleanComErrorMessage($rawMessage) ?: $rawMessage;
+    $cleanMessage = Helper::cleanComErrorMessage($rawMessage) ?: $rawMessage;
+    $json_response['message'] = $cleanMessage;
+    if (isset($className, $method) && $className === 'Document' && $method === 'createIssueFromOrder') {
+        $json_response['state'] = 'error';
+        if (strpos($rawMessage, 'Nieprawidłowy klucz API') !== false) {
+            $json_response['message'] = 'Nieprawidłowy klucz API';
+            $json_response['error'] = 'INVALID_API_KEY';
+        }
+    }
     $json_response['file'] = $e->getFile();
     $json_response['line'] = $e->getLine();
     if (isset($json_request['data'])) {

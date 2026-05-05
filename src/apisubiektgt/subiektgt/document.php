@@ -500,6 +500,113 @@ class Document extends SubiektObj
         return true;
     }
 
+    protected function getOrderIdByReference($orderRef)
+    {
+        $safeRef = str_replace("'", "''", (string) $orderRef);
+        $sql = "SELECT TOP 1 d.dok_Id, d.dok_NrPelny
+                FROM dok__Dokument d
+                WHERE d.dok_Typ = 16
+                AND d.dok_Status >= 0
+                AND d.dok_NrPelny = '{$safeRef}'
+                ORDER BY d.dok_Id DESC";
+        $data = MSSql::getInstance()->query($sql);
+        if (!is_array($data) || empty($data)) {
+            return null;
+        }
+        return (int) $data[0]['dok_Id'];
+    }
+
+    protected function getExistingIssueForOrder($orderRef)
+    {
+        $safeRef = str_replace("'", "''", (string) $orderRef);
+        $sql = "SELECT TOP 1 d.dok_NrPelny
+                FROM dok__Dokument d
+                WHERE d.dok_Typ = 11
+                AND d.dok_Status >= 0
+                AND d.dok_NrPelnyOryg = '{$safeRef}'
+                ORDER BY d.dok_Id DESC";
+        $data = MSSql::getInstance()->query($sql);
+        if (!is_array($data) || empty($data) || !isset($data[0]['dok_NrPelny'])) {
+            return null;
+        }
+        return (string) $data[0]['dok_NrPelny'];
+    }
+
+    public function createIssueFromOrder()
+    {
+        try {
+            $orderRef = isset($this->documentDetail['order_ref']) ? trim((string) $this->documentDetail['order_ref']) : '';
+            $reference = isset($this->documentDetail['reference']) ? (string) $this->documentDetail['reference'] : '';
+
+            if ($orderRef === '') {
+                return [
+                    'state' => 'error',
+                    'message' => 'Brak wymaganego pola data.order_ref',
+                    'error' => 'VALIDATION_ERROR',
+                ];
+            }
+
+            Logger::getInstance()->log('api', 'createIssueFromOrder start: order_ref=' . $orderRef . ', reference=' . $reference, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            $orderId = $this->getOrderIdByReference($orderRef);
+            if ($orderId === null) {
+                return [
+                    'state' => 'error',
+                    'message' => 'Nie znaleziono zamówienia o podanym order_ref',
+                    'error' => 'ORDER_NOT_FOUND',
+                ];
+            }
+
+            $existingIssueRef = $this->getExistingIssueForOrder($orderRef);
+            if ($existingIssueRef !== null && $existingIssueRef !== '') {
+                return [
+                    'state' => 'success',
+                    'message' => 'WZ already exists',
+                    'data' => [
+                        'doc_ref' => $existingIssueRef,
+                        'order_ref' => $orderRef,
+                        'doc_type' => 11,
+                        'already_exists' => true,
+                    ],
+                ];
+            }
+
+            $issueDoc = $this->subiektGt->SuDokumentyManager->DodajWZ();
+            $issueDoc->NaPodstawie($orderId);
+            $issueDoc->Wystawil = Helper::toWin($this->cfg->getIdPerson());
+            $issueDoc->Zapisz();
+
+            $docRef = isset($issueDoc->NumerPelny) ? (string) $issueDoc->NumerPelny : '';
+            if ($docRef === '') {
+                $docRef = $this->getExistingIssueForOrder($orderRef);
+            }
+            if ($docRef === null || $docRef === '') {
+                throw new Exception('Brak numeru dokumentu WZ po zapisie');
+            }
+
+            Logger::getInstance()->log('api', 'createIssueFromOrder success: order_ref=' . $orderRef . ', doc_ref=' . $docRef, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            return [
+                'state' => 'success',
+                'message' => 'WZ created',
+                'data' => [
+                    'doc_ref' => $docRef,
+                    'order_ref' => $orderRef,
+                    'doc_type' => 11,
+                    'already_exists' => false,
+                ],
+            ];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'createIssueFromOrder error: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return [
+                'state' => 'error',
+                'message' => 'Nie udało się utworzyć dokumentu WZ',
+                'error' => 'WZ_CREATE_FAILED',
+                'details' => $e->getMessage(),
+            ];
+        }
+    }
+
     public function getGt()
     {
         return $this->documentGt;
@@ -680,6 +787,9 @@ class Document extends SubiektObj
                     d.dok_Id,
                     d.dok_NrPelny,
                     d.dok_WartBrutto,
+                    d.dok_WartNetto,
+                    d.dok_WartTwNetto,
+                    d.dok_WartMag,
                     d.dok_TerminRealizacji,
                     d.dok_DataWyst as date_issue,
                     d.dok_Status,
@@ -705,6 +815,8 @@ class Document extends SubiektObj
                 $result[] = [
                     'doc_ref' => $row['dok_NrPelny'],
                     'amount' => $row['dok_WartBrutto'],
+                    'projected_value' => $row['dok_WartMag'],
+                    'projected_profit' => ($row['dok_WartTwNetto'] - $row['dok_WartMag']),
                     'date_issue' => $row['date_issue'],
                     'date_of_delivery' => $row['dok_TerminRealizacji'],
                     'status' => $row['dok_Status'],
@@ -784,6 +896,8 @@ class Document extends SubiektObj
                     d.dok_WartBrutto,
                     d.dok_WartNetto,
                     d.dok_WartVat,
+                    d.dok_WartTwNetto,
+                    d.dok_WartMag,
                     d.dok_TerminRealizacji,
                     d.dok_DataWyst,
                     d.dok_Status,
@@ -821,6 +935,8 @@ class Document extends SubiektObj
                     'amount' => $row['dok_WartBrutto'],
                     'amount_net' => $row['dok_WartNetto'],
                     'amount_vat' => $row['dok_WartVat'],
+                    'projected_value' => $row['dok_WartMag'],
+                    'projected_profit' => ($row['dok_WartTwNetto'] - $row['dok_WartMag']),
                     'date_issue' => $this->formatDateForResponse($row['dok_DataWyst']),
                     'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                     'status' => $row['dok_Status'],
@@ -929,6 +1045,8 @@ class Document extends SubiektObj
                         d.dok_WartBrutto,
                         d.dok_WartNetto,
                         d.dok_WartVat,
+                        d.dok_WartTwNetto,
+                        d.dok_WartMag,
                         d.dok_TerminRealizacji,
                         d.dok_DataWyst,
                         d.dok_Status,
@@ -968,6 +1086,8 @@ class Document extends SubiektObj
                         'amount' => $row['dok_WartBrutto'],
                         'amount_net' => $row['dok_WartNetto'],
                         'amount_vat' => $row['dok_WartVat'],
+                        'projected_value' => $row['dok_WartMag'],
+                        'projected_profit' => ($row['dok_WartTwNetto'] - $row['dok_WartMag']),
                         'date_issue' => $this->formatDateForResponse($row['dok_DataWyst']),
                         'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                         'status' => $row['dok_Status'],
@@ -1093,6 +1213,8 @@ class Document extends SubiektObj
                         d.dok_WartBrutto,
                         d.dok_WartNetto,
                         d.dok_WartVat,
+                        d.dok_WartTwNetto,
+                        d.dok_WartMag,
                         d.dok_TerminRealizacji,
                         d.dok_DataWyst,
                         d.dok_Status,
@@ -1151,6 +1273,8 @@ class Document extends SubiektObj
                     'amount' => $row['dok_WartBrutto'],
                     'amount_net' => $row['dok_WartNetto'],
                     'amount_vat' => $row['dok_WartVat'],
+                    'projected_value' => $row['dok_WartMag'],
+                    'projected_profit' => ($row['dok_WartTwNetto'] - $row['dok_WartMag']),
                     'date_issue' => $this->formatDateForResponse($row['dok_DataWyst']),
                     'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                     'status' => $row['dok_Status'],

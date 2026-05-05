@@ -368,6 +368,8 @@ class Customer extends SubiektObj
                         dok_WartNetto as net_value,
                         dok_WartVat as vat_value,
                         dok_WartBrutto as gross_value,
+                        dok_WartMag as projected_value,
+                        (dok_WartTwNetto - dok_WartMag) as projected_profit,
                         dok_Status as status
                     FROM dok__Dokument 
                     WHERE dok_PlatnikId = {$customer_gt_id}
@@ -386,6 +388,8 @@ class Customer extends SubiektObj
                     'net_value' => $row['net_value'],
                     'vat_value' => $row['vat_value'],
                     'gross_value' => $row['gross_value'],
+                    'projected_value' => $row['projected_value'],
+                    'projected_profit' => $row['projected_profit'],
                     'status' => $row['status']
                 ];
             }
@@ -436,6 +440,8 @@ class Customer extends SubiektObj
                         dok_WartNetto as net_value,
                         dok_WartVat as vat_value,
                         dok_WartBrutto as gross_value,
+                        dok_WartMag as projected_value,
+                        (dok_WartTwNetto - dok_WartMag) as projected_profit,
                         dok_Status as status,
                         dok_Typ as doc_type,
                         dok_NrIdentNabywcy as buyer_ident
@@ -459,6 +465,8 @@ class Customer extends SubiektObj
                     'net_value' => $row['net_value'],
                     'vat_value' => $row['vat_value'],
                     'gross_value' => $row['gross_value'],
+                    'projected_value' => $row['projected_value'],
+                    'projected_profit' => $row['projected_profit'],
                     'status' => $row['status'],
                     'doc_type' => $row['doc_type'],
                     'buyer_ident' => $row['buyer_ident']

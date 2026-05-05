@@ -33,6 +33,8 @@ class Order extends SubiektObj
     protected $id_flag = 0;
     protected $flag_txt = '';
     protected $pay_point_id = 0;
+    protected $projected_value = 0;
+    protected $projected_profit = 0;
 
 
     public function __construct($subiektGt, $orderDetail = array())
@@ -328,6 +330,8 @@ class Order extends SubiektObj
         $this->reservation = $o['statusrez'] ?? 0;
         $this->state = $o['dok_Status'] ?? 0;
         $this->amount = $o['dok_WartBrutto'] ?? 0;
+        $this->projected_value = $o['dok_WartMag'] ?? 0;
+        $this->projected_profit = $o['dok_PrognozowanyZysk'] ?? (($o['dok_WartTwNetto'] ?? 0) - ($o['dok_WartMag'] ?? 0));
         $this->date_of_delivery = $o['dok_TerminRealizacji'] ?? null;
         $this->order_processing = $o['ss_PrzetworzonoZKwZD'] ?? $o['dok_PrzetworzonoZKwZD'] ?? 0;
         $this->id_flag = $o['flg_Id'] ?? null;
@@ -361,7 +365,9 @@ class Order extends SubiektObj
     protected function getOrderById($id)
     {
         $sql = "SELECT d.dok_Id, d.dok_NrPelnyOryg, d.dok_Uwagi, d.dok_NrPelny, d.dok_Status,
-                       d.dok_WartBrutto, d.dok_TerminRealizacji, d.dok_PrzetworzonoZKwZD,
+                       d.dok_WartBrutto, d.dok_WartNetto, d.dok_WartTwNetto, d.dok_WartMag,
+                       (d.dok_WartTwNetto - d.dok_WartMag) AS dok_PrognozowanyZysk,
+                       d.dok_TerminRealizacji, d.dok_PrzetworzonoZKwZD,
                        fw.flw_IdFlagi as flg_Id, f.flg_Text
                 FROM dok__Dokument d
                 LEFT JOIN fl_Wartosc as fw ON (fw.flw_IdObiektu = d.dok_Id)
@@ -406,6 +412,8 @@ class Order extends SubiektObj
             'id_flag' => $this->id_flag,
             'flag_txt' => $this->flag_txt,
             'amount' => $this->amount,
+            'projected_value' => $this->projected_value,
+            'projected_profit' => $this->projected_profit,
             'sell_doc' => $this->selling_doc
         );
     }
@@ -627,6 +635,8 @@ class Order extends SubiektObj
                         d.dok_NrPelny as order_ref,
                         d.dok_NrPelnyOryg as reference,
                         d.dok_WartBrutto as amount,
+                        d.dok_WartMag as projected_value,
+                        (d.dok_WartTwNetto - d.dok_WartMag) as projected_profit,
                         d.dok_Status as state,
                         d.dok_TerminRealizacji as date_of_delivery,
                         d.dok_Uwagi as comments,
@@ -689,6 +699,8 @@ class Order extends SubiektObj
                         d.dok_WartBrutto as amount,
                         d.dok_WartNetto as amount_net,
                         d.dok_WartVat as amount_vat,
+                        d.dok_WartMag as projected_value,
+                        (d.dok_WartTwNetto - d.dok_WartMag) as projected_profit,
                         d.dok_Status as state,
                         d.dok_TerminRealizacji as date_of_delivery,
                         d.dok_Uwagi as comments,
@@ -751,6 +763,8 @@ class Order extends SubiektObj
                     'amount' => $row['amount'],
                     'amount_net' => $row['amount_net'],
                     'amount_vat' => $row['amount_vat'],
+                    'projected_value' => $row['projected_value'],
+                    'projected_profit' => $row['projected_profit'],
                     'state' => $row['state'],
                     'accounting_state' => $row['accounting_state'],
                     'date_of_delivery' => $row['date_of_delivery'],
