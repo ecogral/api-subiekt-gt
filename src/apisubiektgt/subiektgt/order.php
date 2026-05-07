@@ -418,6 +418,51 @@ class Order extends SubiektObj
         );
     }
 
+    /**
+     * Ustawia flagę rezerwacji towaru dla istniejącego zamówienia.
+     * Domyślnie włącza rezerwację (reservation=true). Aby wyłączyć, przekaż reservation=false.
+     *
+     * @return array
+     * @throws Exception
+     */
+    public function reserve()
+    {
+        if (!$this->order_ref) {
+            throw new Exception('Brak parametru order_ref – nie można zidentyfikować zamówienia.');
+        }
+        if (!$this->is_exists || !$this->orderGt) {
+            throw new Exception('Zamówienie nie istnieje lub nie udało się go wczytać: ' . $this->order_ref);
+        }
+        if ($this->order_processing) {
+            throw new Exception('Nie można zmienić rezerwacji dla zamówienia już przetworzonego: ' . $this->order_ref);
+        }
+
+        $reservationRequested = true;
+        if (isset($this->orderDetail['reservation'])) {
+            $reservationRequested = filter_var($this->orderDetail['reservation'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($reservationRequested === null) {
+                throw new Exception('Parametr reservation musi być typu bool (true/false).');
+            }
+        }
+
+        $this->reservation = $reservationRequested;
+        $this->orderGt->Rezerwacja = $this->reservation;
+        $this->orderGt->Przelicz();
+        $this->orderGt->Zapisz();
+
+        Logger::getInstance()->log(
+            'api',
+            'reserve: zaktualizowano rezerwację dla ' . $this->order_ref . ' na ' . ($this->reservation ? 'tak' : 'nie'),
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+
+        return [
+            'order_ref' => $this->order_ref,
+            'reservation' => (bool)$this->reservation
+        ];
+    }
+
 
     public function add()
 {
