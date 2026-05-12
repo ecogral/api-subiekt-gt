@@ -780,6 +780,168 @@ class Document extends SubiektObj
         }
     }
 
+    protected function escapeSqlString($value)
+    {
+        return str_replace("'", "''", (string) $value);
+    }
+
+    protected function buildSettlementCustomerFilter()
+    {
+        if (isset($this->documentDetail['customer_id']) && is_numeric($this->documentDetail['customer_id']) && (int) $this->documentDetail['customer_id'] > 0) {
+            $customerId = (int) $this->documentDetail['customer_id'];
+            return [
+                'where' => "k.kh_Id = {$customerId}",
+                'meta' => [
+                    'type' => 'customer_id',
+                    'value' => $customerId,
+                ],
+            ];
+        }
+
+        if (isset($this->documentDetail['tax_id']) && trim((string) $this->documentDetail['tax_id']) !== '') {
+            $taxId = $this->escapeSqlString(trim((string) $this->documentDetail['tax_id']));
+            return [
+                'where' => "k.adr_NIP = '{$taxId}'",
+                'meta' => [
+                    'type' => 'tax_id',
+                    'value' => $taxId,
+                ],
+            ];
+        }
+
+        if (isset($this->documentDetail['ref_id']) && trim((string) $this->documentDetail['ref_id']) !== '') {
+            $refId = $this->escapeSqlString(trim((string) $this->documentDetail['ref_id']));
+            return [
+                'where' => "k.kh_Symbol = '{$refId}'",
+                'meta' => [
+                    'type' => 'ref_id',
+                    'value' => $refId,
+                ],
+            ];
+        }
+
+        return null;
+    }
+
+    public function getSettlementsByCustomer()
+    {
+        try {
+            $customerFilter = $this->buildSettlementCustomerFilter();
+            if ($customerFilter === null) {
+                throw new Exception('Brak parametru klienta. Podaj jedno z pól: customer_id, tax_id, ref_id');
+            }
+
+            $sql = "SELECT
+                    Bk.nzf_Id,
+                    Bk.nzf_NumerPelny,
+                    Bk.nzf_Data as date_issue,
+                    Bk.nzf_TerminPlatnosci as payment_term,
+                    Bk.DniSpoznienia as days_overdue,
+                    Bk.nzf_DataOstatniejSplaty as last_payment_date,
+                    Bk.naleznosc as amount_total,
+                    Bk.NalPierwotna as amount_original,
+                    Bk.zobowiazanie as amount_liability,
+                    Bk.Rozliczenie as settlement_state,
+                    k.kh_Id as customer_id,
+                    k.kh_Symbol as ref_id,
+                    k.adr_NazwaPelna as company_name,
+                    k.adr_NIP as tax_id,
+                    k.adr_Adres as address,
+                    k.adr_Kod as post_code,
+                    k.adr_Miejscowosc as city,
+                    k.kh_EMail as email,
+                    k.adr_Telefon as phone,
+                    Flagi.flg_Text as flag_name,
+                    FlagiWartosci.flw_Komentarz as flag_comment,
+                    d.dok_Id
+                FROM vwFinanseRozrachunkiWgDokumentow Bk
+                LEFT JOIN dok__Dokument d ON Bk.nzf_IdDokumentAuto = d.dok_Id
+                LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                LEFT JOIN fl_Wartosc FlagiWartosci ON Bk.nzf_Id = FlagiWartosci.flw_IdObiektu
+                    AND FlagiWartosci.flw_IdGrupyFlag = 1
+                LEFT JOIN fl__Flagi Flagi ON FlagiWartosci.flw_IdFlagi = Flagi.flg_Id
+                WHERE Bk.Rozliczenie IN (0, 1)
+                AND Bk.nzf_Typ = 39
+                AND Bk.naleznosc > 0
+                AND " . $customerFilter['where'] . "
+                ORDER BY Bk.nzf_TerminPlatnosci ASC, Bk.nzf_Id DESC";
+
+            $data = MSSql::getInstance()->query($sql);
+            $result = [];
+
+            foreach ($data as $row) {
+                $positions = [];
+                if (isset($row['dok_Id']) && is_numeric($row['dok_Id']) && (int) $row['dok_Id'] > 0) {
+                    $positionsSql = "SELECT
+                        p.ob_Id,
+                        p.ob_Ilosc as quantity,
+                        p.ob_CenaNetto as price_net,
+                        p.ob_CenaBrutto as price_brutto,
+                        p.ob_WartNetto as gross_netto,
+                        p.ob_WartBrutto as gross_brutto,
+                        p.ob_VatProc as vat_rate,
+                        t.tw_Symbol as code,
+                        t.tw_Nazwa as name,
+                        t.tw_Id as id,
+                        t.tw_Zablokowany as blocked,
+                        t.Rezerwacja as reservation,
+                        t.Dostepne as available,
+                        t.Stan as on_store,
+                        t.Stan-t.Rezerwacja as on_store_available
+                    FROM dok_Pozycja p
+                    LEFT JOIN vwTowar t ON t.tw_Id = p.ob_TowId
+                    WHERE p.ob_DokHanId = " . (int) $row['dok_Id'];
+                    $positions = MSSql::getInstance()->query($positionsSql);
+                }
+
+                $result[] = [
+                    'settlement_id' => $row['nzf_Id'],
+                    'doc_ref' => $row['nzf_NumerPelny'],
+                    'date_issue' => $row['date_issue'],
+                    'payment_term' => $row['payment_term'],
+                    'days_overdue' => $row['days_overdue'],
+                    'last_payment_date' => $row['last_payment_date'],
+                    'settlement_state' => $row['settlement_state'],
+                    'amount' => [
+                        'total' => $row['amount_total'],
+                        'original' => $row['amount_original'],
+                        'liability' => $row['amount_liability'],
+                    ],
+                    'customer' => [
+                        'id' => $row['customer_id'],
+                        'ref_id' => $row['ref_id'],
+                        'company_name' => $row['company_name'],
+                        'tax_id' => $row['tax_id'],
+                        'address' => $row['address'],
+                        'post_code' => $row['post_code'],
+                        'city' => $row['city'],
+                        'email' => $row['email'],
+                        'phone' => $row['phone'],
+                    ],
+                    'flag' => [
+                        'name' => $row['flag_name'],
+                        'comment' => $row['flag_comment'],
+                    ],
+                    'positions' => $positions,
+                ];
+            }
+
+            Logger::getInstance()->log('api', 'Pobrano rozrachunki klienta: ' . json_encode($customerFilter['meta']), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            return [
+                'state' => 'success',
+                'data' => [
+                    'customer_filter' => $customerFilter['meta'],
+                    'count' => count($result),
+                    'settlements' => $result,
+                ],
+            ];
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Błąd podczas pobierania rozrachunków klienta: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
+    }
+
     public function getLastOrders()
     {
         try {
