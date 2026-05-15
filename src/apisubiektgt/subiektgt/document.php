@@ -208,7 +208,11 @@ class Document extends SubiektObj
 
     protected function setGtObject()
     {
-        return false;
+        if (!$this->documentGt) {
+            return false;
+        }
+        $this->documentGt->Uwagi = $this->comments;
+        return true;
     }
 
     public function getPdf()
@@ -495,9 +499,86 @@ class Document extends SubiektObj
         return true;
     }
 
+    /**
+     * Aktualizuje nagłówek istniejącego dokumentu (np. WZ): pole uwagi w GT oraz Zapisz().
+     * Obsługa comments + shipment_number jak w Order::update() (nr przesyłki w uwagach).
+     *
+     * @return array
+     * @throws Exception
+     */
     public function update()
     {
-        return true;
+        Logger::getInstance()->log(
+            'api',
+            'Document/update: start, doc_ref=' . ($this->doc_ref ?? '(null)') . ', is_exists=' . ($this->is_exists ? '1' : '0'),
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+
+        if (!$this->doc_ref) {
+            Logger::getInstance()->log('api', 'Document/update: odrzucono – brak doc_ref', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            throw new Exception('Brak parametru doc_ref – nie można zidentyfikować dokumentu do edycji.');
+        }
+        if (!$this->is_exists || !$this->documentGt) {
+            Logger::getInstance()->log(
+                'api',
+                'Document/update: odrzucono – dokument nie wczytany (is_exists=' . ($this->is_exists ? '1' : '0') . ')',
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+            throw new Exception('Dokument nie istnieje lub nie udało się go wczytać: ' . $this->doc_ref);
+        }
+
+        // Jak w Order::update dla UTF-8; jeśli klient nie podaje `comments`, zachowujemy istniejące uwagi z GT (np. sama synchronizacja shipment_number).
+        $hadCommentsKey = array_key_exists('comments', $this->documentDetail);
+        $comments = $hadCommentsKey
+            ? (string) $this->documentDetail['comments']
+            : Helper::toUtf8((string) $this->comments);
+        $lines = preg_split('/\r\n|\r|\n/', $comments);
+        $lines = array_filter($lines, function ($line) {
+            return stripos(trim($line), 'Nr przesyłki:') !== 0;
+        });
+        $comments = trim(implode("\n", $lines));
+        if (!empty($this->documentDetail['shipment_number'])) {
+            $comments .= "\nNr przesyłki: " . trim((string) $this->documentDetail['shipment_number']);
+        }
+        $comments = preg_replace('/(?<!\n)(Adres dostawy:)/u', "\n$1", $comments);
+        $comments = preg_replace('/(?<!\n)(Nr przesyłki:)/u', "\n$1", $comments);
+        $comments = str_replace(["\r\n", "\r"], "\n", $comments);
+        $comments = str_replace("\n", "\r\n", $comments);
+        $this->comments = Helper::toWin($comments);
+
+        $commentsPreview = $hadCommentsKey ? substr((string) $this->documentDetail['comments'], 0, 50) : '(z dokumentu)';
+        Logger::getInstance()->log(
+            'api',
+            'Document/update: setGtObject (comments_preview=' . $commentsPreview . ', shipment_number=' . (isset($this->documentDetail['shipment_number']) ? 'tak' : 'nie') . ')',
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+        $this->setGtObject();
+
+        try {
+            Logger::getInstance()->log('api', 'Document/update: wywołuję Zapisz() dla ' . $this->doc_ref, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $this->documentGt->Zapisz();
+            Logger::getInstance()->log('api', 'Document/update: Zapisz() zakończone OK', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'Document/update: Zapisz() BŁĄD: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            throw $e;
+        }
+
+        $this->getGtObject();
+        Logger::getInstance()->log(
+            'api',
+            'Document/update: sukces, doc_ref=' . $this->doc_ref . ', doc_type=' . $this->doc_type,
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+
+        return [
+            'doc_ref' => $this->doc_ref,
+            'doc_type' => $this->doc_type,
+            'doc_type_id' => $this->doc_type_id,
+        ];
     }
 
     protected function getOrderIdByReference($orderRef)

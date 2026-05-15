@@ -165,6 +165,17 @@ try {
             $productsInfo = isset($d['products']) && is_array($d['products']) ? count($d['products']) . ' pozycji' : 'brak';
             Logger::getInstance()->log('api', 'Order/update żądanie: order_ref=' . $orderRef . ', products=' . $productsInfo, '', __LINE__);
         }
+        if ($className == 'Document' && $method == 'update') {
+            $d = isset($json_request['data']) ? $json_request['data'] : [];
+            $docRef = isset($d['doc_ref']) ? $d['doc_ref'] : '(brak)';
+            $hasShipment = isset($d['shipment_number']) && (string) $d['shipment_number'] !== '';
+            Logger::getInstance()->log(
+                'api',
+                'Document/update żądanie: doc_ref=' . $docRef . ', shipment_number=' . ($hasShipment ? 'tak' : 'nie'),
+                '',
+                __LINE__
+            );
+        }
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
         
