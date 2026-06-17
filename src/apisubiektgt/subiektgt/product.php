@@ -363,9 +363,17 @@ class Product extends SubiektObj
 
     public function getStocks()
     {
-        $sql = "SELECT tw_Symbol as code, tw_JednMiary as unit, Rezerwacja as reservation, Dostepne as available, Stan as on_store, st_MagId as id_store 
-            FROM vwTowar 
-            WHERE st_MagId = " . intval($this->id_store);
+        $sql = "SELECT 
+                t.tw_Symbol as code, 
+                t.tw_JednMiary as unit, 
+                t.tw_JednMiarySprz as sales_unit,
+                s.st_Stan as on_store, 
+                s.st_StanRez as reservation, 
+                s.st_Stan - s.st_StanRez as available, 
+                s.st_MagId as id_store 
+            FROM tw__Towar t
+            INNER JOIN tw_Stan s ON s.st_TowId = t.tw_Id
+            WHERE s.st_MagId = " . intval($this->id_store);
 
         $data = MSSql::getInstance()->query($sql);
 
@@ -374,9 +382,10 @@ class Product extends SubiektObj
             $stocks[] = array(
                 'code' => $row['code'],
                 'unit' => isset($row['unit']) ? trim($row['unit']) : '',
-                'available' => intval($row['available']),
-                'reservation' => intval($row['reservation']),
-                'on_store' => intval($row['on_store']),
+                'sales_unit' => isset($row['sales_unit']) ? trim($row['sales_unit']) : '',
+                'available' => floatval($row['available']),
+                'reservation' => floatval($row['reservation']),
+                'on_store' => floatval($row['on_store']),
                 'id_store' => intval($row['id_store'])
             );
         }
