@@ -363,7 +363,7 @@ class Product extends SubiektObj
 
     public function getStocks()
     {
-        $sql = "SELECT tw_Symbol as code, Rezerwacja as reservation, Dostepne as available, Stan as on_store, st_MagId as id_store 
+        $sql = "SELECT tw_Symbol as code, tw_JednMiary as unit, Rezerwacja as reservation, Dostepne as available, Stan as on_store, st_MagId as id_store 
             FROM vwTowar 
             WHERE st_MagId = " . intval($this->id_store);
 
@@ -373,6 +373,7 @@ class Product extends SubiektObj
         foreach ($data as $row) {
             $stocks[] = array(
                 'code' => $row['code'],
+                'unit' => isset($row['unit']) ? trim($row['unit']) : '',
                 'available' => intval($row['available']),
                 'reservation' => intval($row['reservation']),
                 'on_store' => intval($row['on_store']),
