@@ -327,7 +327,7 @@ class Order extends SubiektObj
         $this->selling_doc = $o['pow_NrPelny'] ?? '';
         $this->comments = $o['dok_Uwagi'] ?? '';
         $this->order_ref = $o['dok_NrPelny'] ?? '';
-        $this->reservation = $o['statusrez'] ?? 0;
+        $this->reservation = (bool) ($this->orderGt->Rezerwacja ?? false);
         $this->state = $o['dok_Status'] ?? 0;
         $this->amount = $o['dok_WartBrutto'] ?? 0;
         $this->projected_value = $o['dok_WartMag'] ?? 0;
@@ -379,7 +379,8 @@ class Order extends SubiektObj
         }
         $row = $data[0];
         $row['ss_PrzetworzonoZKwZD'] = $row['dok_PrzetworzonoZKwZD'] ?? 0;
-        $row['statusrez'] = 0;
+        $row['statusrez'] = (bool) ($this->orderGt->Rezerwacja ?? false);
+
         return $row;
     }
 
@@ -608,6 +609,13 @@ class Order extends SubiektObj
         }
         if (isset($this->orderDetail['reference']) && (string)$this->orderDetail['reference'] !== '') {
             $this->reference = Helper::toWin((string)$this->orderDetail['reference']);
+        }
+
+        if (isset($this->orderDetail['reservation'])) {
+            $reservationRequested = filter_var($this->orderDetail['reservation'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($reservationRequested !== null) {
+                $this->reservation = $reservationRequested;
+            }
         }
 
         $commentsPreview = isset($this->orderDetail['comments']) ? substr((string)$this->orderDetail['comments'], 0, 50) : '';

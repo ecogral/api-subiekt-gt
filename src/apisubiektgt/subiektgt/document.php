@@ -638,6 +638,44 @@ class Document extends SubiektObj
                 ];
             }
 
+            $reservationRequested = true;
+            if (isset($this->documentDetail['reservation'])) {
+                $reservationRequested = filter_var(
+                    $this->documentDetail['reservation'],
+                    FILTER_VALIDATE_BOOLEAN,
+                    FILTER_NULL_ON_FAILURE
+                );
+                if ($reservationRequested === null) {
+                    $reservationRequested = true;
+                }
+            }
+
+            if ($reservationRequested) {
+                $orderForReserve = new Order($this->subiektGt, [
+                    'order_ref' => $orderRef,
+                    'reservation' => true,
+                ]);
+                $orderForReserve->setCfg($this->cfg);
+                if ($orderForReserve->isExists()) {
+                    try {
+                        $orderForReserve->reserve();
+                        Logger::getInstance()->log(
+                            'api',
+                            'createIssueFromOrder: włączono rezerwację przed WZ dla ' . $orderRef,
+                            __CLASS__ . '->' . __FUNCTION__,
+                            __LINE__
+                        );
+                    } catch (Exception $reserveException) {
+                        Logger::getInstance()->log(
+                            'api',
+                            'createIssueFromOrder: nie udało się włączyć rezerwacji przed WZ: ' . $reserveException->getMessage(),
+                            __CLASS__ . '->' . __FUNCTION__,
+                            __LINE__
+                        );
+                    }
+                }
+            }
+
             $existingIssueRef = $this->getExistingIssueForOrder($orderRef);
             if ($existingIssueRef !== null && $existingIssueRef !== '') {
                 return [
