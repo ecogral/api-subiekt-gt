@@ -619,8 +619,10 @@ class Order extends SubiektObj
         }
 
         $commentsPreview = isset($this->orderDetail['comments']) ? substr((string)$this->orderDetail['comments'], 0, 50) : '';
-        Logger::getInstance()->log('api', 'update: setGtObject (reference=' . ($this->reference ?? '') . ', comments=' . $commentsPreview . ', shipment_number=' . (isset($this->orderDetail['shipment_number']) ? 'tak' : 'nie') . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        Logger::getInstance()->log('api', 'update: setGtObject (reference=' . ($this->reference ?? '') . ', comments=' . $commentsPreview . ', reservation=' . ($this->reservation ? 'tak' : 'nie') . ', shipment_number=' . (isset($this->orderDetail['shipment_number']) ? 'tak' : 'nie') . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
         $this->setGtObject();
+        $this->orderGt->Przelicz();
+        $this->amount = $this->orderGt->WartoscBrutto;
 
         try {
             Logger::getInstance()->log('api', 'update: wywołuję Zapisz() dla ' . $this->order_ref, __CLASS__ . '->' . __FUNCTION__, __LINE__);
@@ -637,7 +639,8 @@ class Order extends SubiektObj
         return [
             'order_ref' => $this->order_ref,
             'order_amount' => $this->amount,
-            'positions_count' => $positions_count
+            'positions_count' => $positions_count,
+            'reservation' => (bool) $this->reservation,
         ];
     }
 
