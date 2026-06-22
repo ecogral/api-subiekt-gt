@@ -134,6 +134,82 @@ class Document extends SubiektObj
     }
 
     /**
+     * Opcjonalne klucze INI dla jawnego wzorca PDF (wzw_Id): pdf_template_wz, pdf_template_zk, pdf_template_fs, pdf_template_kfs, pdf_template_id.
+     */
+    protected function getPdfTemplateIdFromCfg($docTypeId = null)
+    {
+        if (!$this->cfg || !is_object($this->cfg)) {
+            return null;
+        }
+        $typ = $docTypeId !== null ? (int) $docTypeId : (int) $this->doc_type_id;
+        $typeKeys = array(
+            2 => 'pdf_template_fs',
+            6 => 'pdf_template_kfs',
+            11 => 'pdf_template_wz',
+            16 => 'pdf_template_zk',
+        );
+        $keys = array();
+        if (isset($typeKeys[$typ])) {
+            $keys[] = $typeKeys[$typ];
+        }
+        $keys[] = 'pdf_template_id';
+        foreach ($keys as $key) {
+            if (!isset($this->cfg->{$key})) {
+                continue;
+            }
+            $v = $this->cfg->{$key};
+            if ($v === '' || $v === null) {
+                continue;
+            }
+            if (is_numeric($v) && (int) $v > 0) {
+                return (int) $v;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Domyślny wzorzec wydruku z wy_WzDomyslny (preferowany: bieżący host, potem wpis bez nazwy komputera).
+     */
+    protected function findDefaultWydrukWzorzecId($docTypeId = null)
+    {
+        $typ = $docTypeId !== null ? (int) $docTypeId : (int) $this->doc_type_id;
+        if ($typ <= 0) {
+            return null;
+        }
+        $host = str_replace("'", "''", (string) gethostname());
+        $sql = "SELECT TOP 1 wzd.wzd_WzorzecId AS id, w.wzw_Nazwa AS template_name, wzd.wzd_NazwaKomputera AS host_name
+            FROM wy_WzDomyslny wzd
+            INNER JOIN wy_Wzorzec w ON w.wzw_Id = wzd.wzd_WzorzecId AND w.wzw_Widoczny = 1
+            WHERE wzd.wzd_Typ = {$typ}
+            ORDER BY
+                CASE
+                    WHEN LTRIM(RTRIM(ISNULL(wzd.wzd_NazwaKomputera, ''))) = N'{$host}' THEN 0
+                    WHEN LTRIM(RTRIM(ISNULL(wzd.wzd_NazwaKomputera, ''))) = '' THEN 1
+                    ELSE 2
+                END,
+                wzd.wzd_Id DESC";
+        try {
+            $data = MSSql::getInstance()->query($sql);
+            if (!empty($data) && isset($data[0]['id']) && (int) $data[0]['id'] > 0) {
+                Logger::getInstance()->log(
+                    'api',
+                    'PDF: domyślny wzorzec z DB wzw_Id=' . (int) $data[0]['id']
+                        . ', nazwa=' . (isset($data[0]['template_name']) ? $data[0]['template_name'] : '')
+                        . ', host=' . (isset($data[0]['host_name']) ? $data[0]['host_name'] : '')
+                        . ', typ=' . $typ,
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                return (int) $data[0]['id'];
+            }
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'PDF: domyślny wzorzec z DB: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        }
+        return null;
+    }
+
+    /**
      * Próba znalezienia wzorca KSeF w wy_Wzorzec (nazwa zawiera „KSeF”) w tej samej grupie typu (wy_Typ) co domyślny wzorzec dla FS/KFS.
      */
     protected function findAutoKsefWydrukWzorzecId()
@@ -164,33 +240,57 @@ class Document extends SubiektObj
     }
 
     /**
-     * Generuje PDF przez Sferę: dla dokumentów z numerem KSeF — DrukujDoPlikuWgWzorca (wzór KSeF), inaczej DrukujDoPliku (domyślny).
+     * Generuje PDF przez Sferę.
+     * Kolejność: wzorzec KSeF (FS/KFS z numerem) → jawny/domyślny wzorzec (DrukujDoPlikuWgWzorca) → DrukujDoPliku.
      * gtaTypPlikuPDF = 0 (pomoc Sfery: TypPlikuEnum).
      */
     protected function printDocumentToPdfFile($file_name)
     {
         $useKsef = $this->dokHanHasAssignedKsef($this->gt_id);
-        if (!$useKsef) {
-            $this->documentGt->DrukujDoPliku($file_name, 0);
-            return 'standard';
+        if ($useKsef) {
+            $wzorzecId = $this->getKsefPdfTemplateIdFromCfg();
+            if ($wzorzecId === null) {
+                $wzorzecId = $this->findAutoKsefWydrukWzorzecId();
+            }
+            if ($wzorzecId !== null) {
+                try {
+                    $this->documentGt->DrukujDoPlikuWgWzorca($wzorzecId, $file_name, 0);
+                    return 'ksef';
+                } catch (Exception $e) {
+                    Logger::getInstance()->log('api', 'KSeF PDF: DrukujDoPlikuWgWzorca nie powiodło się (' . $e->getMessage() . ') — próba standardowego wzorca.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                }
+            } else {
+                Logger::getInstance()->log('api', 'KSeF PDF: brak wzorca KSeF w INI/DB — próba standardowego wzorca.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            }
         }
-        $wzorzecId = $this->getKsefPdfTemplateIdFromCfg();
+
+        $wzorzecId = $this->getPdfTemplateIdFromCfg();
         if ($wzorzecId === null) {
-            $wzorzecId = $this->findAutoKsefWydrukWzorzecId();
+            $wzorzecId = $this->findDefaultWydrukWzorzecId();
         }
-        if ($wzorzecId === null) {
-            Logger::getInstance()->log('api', 'KSeF PDF: brak wzorca (ustaw ksef_pdf_template_fs/kfs lub ksef_pdf_template_id w INI) — używam DrukujDoPliku.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
-            $this->documentGt->DrukujDoPliku($file_name, 0);
-            return 'standard_fallback';
+        if ($wzorzecId !== null) {
+            try {
+                $this->documentGt->DrukujDoPlikuWgWzorca($wzorzecId, $file_name, 0);
+                return $useKsef ? 'standard_fallback' : 'template';
+            } catch (Exception $e) {
+                Logger::getInstance()->log(
+                    'api',
+                    'PDF: DrukujDoPlikuWgWzorca(wzw_Id=' . $wzorzecId . ') błąd: ' . $e->getMessage() . ' — fallback DrukujDoPliku.',
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+            }
+        } else {
+            Logger::getInstance()->log(
+                'api',
+                'PDF: brak wzorca w INI/DB dla typu ' . (int) $this->doc_type_id . ' (' . $this->doc_type . ', doc_ref=' . $this->doc_ref . ') — używam DrukujDoPliku.',
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
         }
-        try {
-            $this->documentGt->DrukujDoPlikuWgWzorca($wzorzecId, $file_name, 0);
-            return 'ksef';
-        } catch (Exception $e) {
-            Logger::getInstance()->log('api', 'KSeF PDF: DrukujDoPlikuWgWzorca nie powiodło się (' . $e->getMessage() . ') — fallback DrukujDoPliku.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
-            $this->documentGt->DrukujDoPliku($file_name, 0);
-            return 'standard_fallback';
-        }
+
+        $this->documentGt->DrukujDoPliku($file_name, 0);
+        return $useKsef ? 'standard_fallback' : 'standard';
     }
 
     public function __construct($subiektGt, $documentDetail = array())
@@ -248,13 +348,16 @@ class Document extends SubiektObj
             }
 
             if (!is_file($file_name)) {
+                $hint = ((int) $this->doc_type_id === 11)
+                    ? ' Sprawdź w Subiekcie domyślny wzorzec wydruku WZ (wy_WzDomyslny) lub ustaw pdf_template_wz w INI API.'
+                    : ' Sprawdź domyślny wzorzec wydruku w Subiekcie lub pdf_template_* w INI API.';
                 Logger::getInstance()->log(
                     'api',
-                    'PDF nie został utworzony przez Sferę: doc_ref=' . $this->doc_ref . ', gt_id=' . $safeId . ', tmp=' . $file_name . ', tmp_dir=' . $temp_dir . ', wariant=' . $pdf_variant,
+                    'PDF nie został utworzony przez Sferę: doc_ref=' . $this->doc_ref . ', doc_type=' . $this->doc_type . ', gt_id=' . $safeId . ', tmp=' . $file_name . ', tmp_dir=' . $temp_dir . ', wariant=' . $pdf_variant,
                     __CLASS__ . '->' . __FUNCTION__,
                     __LINE__
                 );
-                throw new Exception('Subiekt nie wygenerował pliku PDF dla dokumentu: ' . $this->doc_ref);
+                throw new Exception('Subiekt nie wygenerował pliku PDF dla dokumentu: ' . $this->doc_ref . '.' . $hint);
             }
 
             $size = @filesize($file_name);
