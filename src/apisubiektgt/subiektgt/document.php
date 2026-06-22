@@ -217,14 +217,66 @@ class Document extends SubiektObj
 
     public function getPdf()
     {
+        if (!$this->is_exists) {
+            return false;
+        }
+
         $temp_dir = sys_get_temp_dir();
-        if ($this->is_exists) {
-            $file_name = $temp_dir . '/' . $this->gt_id . '.pdf';
+        if (!is_string($temp_dir) || $temp_dir === '' || !is_dir($temp_dir)) {
+            throw new Exception('Nie można ustalić katalogu tymczasowego na serwerze (sys_get_temp_dir).');
+        }
+        if (!is_writable($temp_dir)) {
+            throw new Exception('Brak uprawnień zapisu do katalogu tymczasowego: ' . $temp_dir);
+        }
+
+        $safeId = (int) $this->gt_id;
+        $uniq = bin2hex(random_bytes(8));
+        $file_name = rtrim($temp_dir, "\\/") . DIRECTORY_SEPARATOR . $safeId . '_' . $uniq . '.pdf';
+
+        $pdf_variant = 'standard';
+        try {
             $pdf_variant = $this->printDocumentToPdfFile($file_name);
-            $pdf_file = file_get_contents($file_name);
-            unlink($file_name);
-            Logger::getInstance()->log('api', 'Wygenerowano pdf dokumentu: ' . $this->doc_ref . ' (wariant=' . $pdf_variant . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
-            return array('encoding' => 'base64',
+
+            // COM potrafi zwrócić bez wyjątku, ale nie utworzyć pliku od razu — krótki retry.
+            $maxAttempts = 6;
+            $sleepMicros = 200000; // 200ms
+            for ($i = 0; $i < $maxAttempts; $i++) {
+                if (is_file($file_name) && filesize($file_name) > 0) {
+                    break;
+                }
+                usleep($sleepMicros);
+            }
+
+            if (!is_file($file_name)) {
+                Logger::getInstance()->log(
+                    'api',
+                    'PDF nie został utworzony przez Sferę: doc_ref=' . $this->doc_ref . ', gt_id=' . $safeId . ', tmp=' . $file_name . ', tmp_dir=' . $temp_dir . ', wariant=' . $pdf_variant,
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                throw new Exception('Subiekt nie wygenerował pliku PDF dla dokumentu: ' . $this->doc_ref);
+            }
+
+            $size = @filesize($file_name);
+            if ($size === false || $size <= 0) {
+                Logger::getInstance()->log(
+                    'api',
+                    'PDF utworzony, ale pusty: doc_ref=' . $this->doc_ref . ', gt_id=' . $safeId . ', tmp=' . $file_name . ', size=' . (is_int($size) ? $size : 'n/a') . ', wariant=' . $pdf_variant,
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                throw new Exception('Subiekt wygenerował pusty plik PDF dla dokumentu: ' . $this->doc_ref);
+            }
+
+            $pdf_file = @file_get_contents($file_name);
+            if ($pdf_file === false || $pdf_file === '') {
+                throw new Exception('Nie można odczytać wygenerowanego PDF z dysku (plik: ' . $file_name . ').');
+            }
+
+            Logger::getInstance()->log('api', 'Wygenerowano pdf dokumentu: ' . $this->doc_ref . ' (wariant=' . $pdf_variant . ', bytes=' . strlen($pdf_file) . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            return array(
+                'encoding' => 'base64',
                 'doc_ref' => $this->doc_ref,
                 'is_exists' => $this->is_exists,
                 'file_name' => mb_ereg_replace("[ /]", "_", $this->doc_ref . '.pdf'),
@@ -232,9 +284,21 @@ class Document extends SubiektObj
                 'accounting_state' => $this->accounting_state,
                 'doc_type' => $this->doc_type,
                 'pdf_variant' => $pdf_variant,
-                'pdf_file' => base64_encode($pdf_file));
+                'pdf_file' => base64_encode($pdf_file),
+            );
+        } catch (Exception $e) {
+            Logger::getInstance()->log(
+                'api',
+                'Błąd generowania PDF: doc_ref=' . $this->doc_ref . ', gt_id=' . $safeId . ', wariant=' . $pdf_variant . ', msg=' . $e->getMessage(),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+            throw $e;
+        } finally {
+            if (isset($file_name) && is_string($file_name) && is_file($file_name)) {
+                @unlink($file_name);
+            }
         }
-        return false;
     }
 
 
