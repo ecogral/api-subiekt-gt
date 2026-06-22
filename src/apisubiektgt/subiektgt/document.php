@@ -169,20 +169,166 @@ class Document extends SubiektObj
     }
 
     /**
-     * Domyślny wzorzec wydruku z wy_WzDomyslny (preferowany: bieżący host, potem wpis bez nazwy komputera).
+     * Katalog na pliki PDF — pdf_temp_dir w INI lub katalog projektu tmp/pdf (współdzielony z procesem Subiekta/COM).
      */
-    protected function findDefaultWydrukWzorzecId($docTypeId = null)
+    protected function resolvePdfTempDir()
+    {
+        $candidates = array();
+        if ($this->cfg && is_object($this->cfg) && isset($this->cfg->pdf_temp_dir)) {
+            $cfgDir = trim((string) $this->cfg->pdf_temp_dir);
+            if ($cfgDir !== '') {
+                $candidates[] = $cfgDir;
+            }
+        }
+        $candidates[] = 'C:\\Windows\\Temp\\api-subiekt-gt-pdf';
+        if (defined('LOG_DIR')) {
+            $candidates[] = rtrim(LOG_DIR, "\\/") . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR . 'pdf';
+        }
+        $candidates[] = sys_get_temp_dir();
+
+        foreach ($candidates as $dir) {
+            if (!is_string($dir) || $dir === '') {
+                continue;
+            }
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0777, true);
+            }
+            $resolved = realpath($dir) ?: $dir;
+            if (is_dir($resolved) && is_writable($resolved)) {
+                return $resolved;
+            }
+        }
+
+        throw new Exception('Brak zapisywalnego katalogu tymczasowego dla PDF (pdf_temp_dir / Windows\\Temp / tmp/pdf).');
+    }
+
+    /**
+     * Sfera/COM na Windows wymaga pełnej ścieżki z backslashami.
+     */
+    protected function normalizePathForCom($path)
+    {
+        return str_replace('/', '\\', (string) $path);
+    }
+
+    protected function waitForPdfFile($file_name, $maxAttempts = 15, $sleepMicros = 300000)
+    {
+        for ($i = 0; $i < $maxAttempts; $i++) {
+            if (is_file($file_name) && @filesize($file_name) > 0) {
+                return true;
+            }
+            usleep($sleepMicros);
+        }
+        return is_file($file_name) && @filesize($file_name) > 0;
+    }
+
+    /**
+     * COM czasem zapisuje plik pod inną ścieżką (np. katalog roboczy procesu) — przenieś do oczekiwanej lokalizacji.
+     */
+    protected function locateGeneratedPdf($expectedPath)
+    {
+        if (is_file($expectedPath) && @filesize($expectedPath) > 0) {
+            return $expectedPath;
+        }
+        $basename = basename($expectedPath);
+        $candidates = array(
+            $expectedPath,
+            getcwd() . DIRECTORY_SEPARATOR . $basename,
+            sys_get_temp_dir() . DIRECTORY_SEPARATOR . $basename,
+        );
+        $safeId = (int) $this->gt_id;
+        if ($safeId > 0) {
+            $candidates[] = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $safeId . '.pdf';
+            $candidates[] = getcwd() . DIRECTORY_SEPARATOR . $safeId . '.pdf';
+        }
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate) || $candidate === '' || $candidate === $expectedPath) {
+                continue;
+            }
+            if (is_file($candidate) && @filesize($candidate) > 0) {
+                if (@rename($candidate, $expectedPath) || @copy($candidate, $expectedPath)) {
+                    @unlink($candidate);
+                    return $expectedPath;
+                }
+                return $candidate;
+            }
+        }
+        return false;
+    }
+
+    protected function isValidPdfTemplateId($templateId)
+    {
+        $templateId = (int) $templateId;
+        if ($templateId <= 0) {
+            return false;
+        }
+        $sql = "SELECT TOP 1 w.wzw_Id AS id, w.wzw_TypPliku AS typ_pliku, w.wzw_Nazwa AS nazwa
+            FROM wy_Wzorzec w
+            WHERE w.wzw_Id = {$templateId} AND w.wzw_Widoczny = 1";
+        try {
+            $data = MSSql::getInstance()->query($sql);
+            return !empty($data) && isset($data[0]['id']) && (int) $data[0]['id'] > 0;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Wzorzec WZ przypisany do kontrahenta (kh_WzwIdWZ / kh_WzwIdWZVAT).
+     */
+    protected function findCustomerWzTemplateIds()
+    {
+        if ((int) $this->doc_type_id !== 11 || !$this->documentGt || is_null($this->documentGt->KontrahentId)) {
+            return array();
+        }
+        $khId = (int) $this->documentGt->KontrahentId;
+        if ($khId <= 0) {
+            return array();
+        }
+        $sql = "SELECT kh_WzwIdWZ AS wz_id, kh_WzwIdWZVAT AS wz_vat_id
+            FROM kh__Kontrahent WHERE kh_Id = {$khId}";
+        try {
+            $data = MSSql::getInstance()->query($sql);
+            if (empty($data)) {
+                return array();
+            }
+            $ids = array();
+            foreach (array('wz_id', 'wz_vat_id') as $col) {
+                if (isset($data[0][$col]) && (int) $data[0][$col] > 0) {
+                    $ids[] = (int) $data[0][$col];
+                }
+            }
+            return $ids;
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'PDF: wzorzec WZ kontrahenta: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return array();
+        }
+    }
+
+    /**
+     * Domyślne wzorce z wy_WzDomyslny — preferuj RPT (wzw_TypPliku=0), bo tylko one eksportują do PDF przez COM.
+     */
+    protected function findDefaultWydrukWzorzecIds($docTypeId = null, $limit = 5)
     {
         $typ = $docTypeId !== null ? (int) $docTypeId : (int) $this->doc_type_id;
         if ($typ <= 0) {
-            return null;
+            return array();
         }
         $host = str_replace("'", "''", (string) gethostname());
-        $sql = "SELECT TOP 1 wzd.wzd_WzorzecId AS id, w.wzw_Nazwa AS template_name, wzd.wzd_NazwaKomputera AS host_name
+        $limit = max(1, (int) $limit);
+        $nameFilter = '';
+        if ($typ === 11) {
+            $nameFilter = "AND (w.wzw_Nazwa LIKE N'%WZ%' OR w.wzw_Nazwa LIKE N'%Wydanie%' OR w.wzw_Nazwa LIKE N'%zewn%')";
+        } elseif ($typ === 2) {
+            $nameFilter = "AND (w.wzw_Nazwa LIKE N'%FS%' OR w.wzw_Nazwa LIKE N'%Faktur%')";
+        }
+        $sql = "SELECT TOP {$limit} wzd.wzd_WzorzecId AS id, w.wzw_Nazwa AS template_name,
+                w.wzw_TypPliku AS typ_pliku, wzd.wzd_NazwaKomputera AS host_name
             FROM wy_WzDomyslny wzd
             INNER JOIN wy_Wzorzec w ON w.wzw_Id = wzd.wzd_WzorzecId AND w.wzw_Widoczny = 1
             WHERE wzd.wzd_Typ = {$typ}
+            {$nameFilter}
             ORDER BY
+                CASE WHEN w.wzw_TypPliku = 0 THEN 0 ELSE 1 END,
                 CASE
                     WHEN LTRIM(RTRIM(ISNULL(wzd.wzd_NazwaKomputera, ''))) = N'{$host}' THEN 0
                     WHEN LTRIM(RTRIM(ISNULL(wzd.wzd_NazwaKomputera, ''))) = '' THEN 1
@@ -191,22 +337,250 @@ class Document extends SubiektObj
                 wzd.wzd_Id DESC";
         try {
             $data = MSSql::getInstance()->query($sql);
-            if (!empty($data) && isset($data[0]['id']) && (int) $data[0]['id'] > 0) {
+            $ids = array();
+            if (!empty($data)) {
+                foreach ($data as $row) {
+                    if (isset($row['id']) && (int) $row['id'] > 0) {
+                        $ids[] = (int) $row['id'];
+                    }
+                }
+            }
+            return $ids;
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'PDF: domyślne wzorce z DB: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return array();
+        }
+    }
+
+    protected function findDefaultWydrukWzorzecId($docTypeId = null)
+    {
+        $ids = $this->findDefaultWydrukWzorzecIds($docTypeId, 1);
+        return !empty($ids) ? $ids[0] : null;
+    }
+
+    protected function reloadDocumentGtForPrint()
+    {
+        if ($this->doc_ref === '' || !$this->subiektGt) {
+            return false;
+        }
+        try {
+            if (!$this->subiektGt->SuDokumentyManager->Istnieje($this->doc_ref)) {
+                return false;
+            }
+            $this->documentGt = $this->subiektGt->SuDokumentyManager->Wczytaj($this->doc_ref);
+            return (bool) $this->documentGt;
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'PDF: przeładowanie dokumentu COM: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return false;
+        }
+    }
+
+    /**
+     * Wzorce RPT w tej samej grupie wy_Typ co domyślny wzorzec dla typu dokumentu (np. WZ → wzw_Typ=121).
+     */
+    protected function findCompatibleRptWzorzecIds($docTypeId = null, $limit = 3)
+    {
+        $typ = $docTypeId !== null ? (int) $docTypeId : (int) $this->doc_type_id;
+        if ($typ <= 0) {
+            return array();
+        }
+        $limit = max(1, (int) $limit);
+        $extraName = '';
+        if ($typ === 11) {
+            $extraName = "AND w.wzw_Nazwa NOT LIKE N'%WZv%' AND (w.wzw_Nazwa LIKE N'%WZ%' OR w.wzw_Nazwa LIKE N'%Wydanie%')";
+        }
+        $sql = "SELECT TOP {$limit} w.wzw_Id AS id
+            FROM wy_Wzorzec w
+            WHERE w.wzw_Widoczny = 1
+            AND w.wzw_TypPliku = 0
+            AND w.wzw_Typ = (
+                SELECT TOP 1 w0.wzw_Typ FROM wy_WzDomyslny z
+                INNER JOIN wy_Wzorzec w0 ON w0.wzw_Id = z.wzd_WzorzecId
+                WHERE z.wzd_Typ = {$typ}
+            )
+            {$extraName}
+            ORDER BY
+                CASE WHEN w.wzw_Id = (SELECT TOP 1 z.wzd_WzorzecId FROM wy_WzDomyslny z WHERE z.wzd_Typ = {$typ} ORDER BY z.wzd_Id DESC) THEN 0 ELSE 1 END,
+                w.wzw_Id DESC";
+        try {
+            $data = MSSql::getInstance()->query($sql);
+            $ids = array();
+            if (!empty($data)) {
+                foreach ($data as $row) {
+                    if (isset($row['id']) && (int) $row['id'] > 0) {
+                        $ids[] = (int) $row['id'];
+                    }
+                }
+            }
+            return $ids;
+        } catch (Exception $e) {
+            Logger::getInstance()->log('api', 'PDF: kompatybilne wzorce RPT: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return array();
+        }
+    }
+
+    protected function findCompatibleWzRptWzorzecIds()
+    {
+        return $this->findCompatibleRptWzorzecIds(11, 3);
+    }
+
+    /**
+     * Zapasowe wzorce RPT — ta sama grupa wy_Typ co domyślny wzorzec dokumentu.
+     */
+    protected function findFallbackRptWzorzecIds($docTypeId = null, $limit = 5)
+    {
+        return $this->findCompatibleRptWzorzecIds($docTypeId, $limit);
+    }
+
+    protected function collectPdfTemplateCandidates()
+    {
+        $candidates = array();
+        $add = function ($id) use (&$candidates) {
+            $id = (int) $id;
+            if ($id > 0 && !in_array($id, $candidates, true)) {
+                $candidates[] = $id;
+            }
+        };
+
+        $add($this->getPdfTemplateIdFromCfg());
+        foreach ($this->findCustomerWzTemplateIds() as $id) {
+            $add($id);
+        }
+        foreach ($this->findFallbackRptWzorzecIds() as $id) {
+            $add($id);
+        }
+        foreach ($this->findDefaultWydrukWzorzecIds() as $id) {
+            $add($id);
+        }
+        return $candidates;
+    }
+
+    protected function tryPrintDrukujDoPliku($file_name, $wzorzecId = null)
+    {
+        if (is_file($file_name)) {
+            @unlink($file_name);
+        }
+        $wzorzecId = $wzorzecId !== null ? (int) $wzorzecId : 0;
+        $method = $wzorzecId > 0 ? 'DrukujDoPliku(' . $wzorzecId . ', path, 0)' : 'DrukujDoPliku(path, 0)';
+        try {
+            if ($wzorzecId > 0) {
+                $this->documentGt->DrukujDoPliku($wzorzecId, $file_name, 0);
+            } else {
+                $this->documentGt->DrukujDoPliku($file_name, 0);
+            }
+        } catch (Exception $e) {
+            if ($wzorzecId > 0) {
+                Logger::getInstance()->log('api', 'PDF: ' . $method . ' wyjątek: ' . $e->getMessage() . ' — próba DrukujDoPlikuWgWzorca.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                return $this->tryPrintWithTemplate($wzorzecId, $file_name);
+            }
+            Logger::getInstance()->log('api', 'PDF: ' . $method . ' wyjątek: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return false;
+        }
+        if ($this->waitForPdfFile($file_name, 40, 500000)) {
+            return true;
+        }
+        return $this->locateGeneratedPdf($file_name) !== false;
+    }
+
+    protected function tryPrintStandardDrukujDoPliku($file_name)
+    {
+        return $this->tryPrintDrukujDoPliku($file_name, null);
+    }
+
+    /**
+     * Dedykowana ścieżka WZ — minimum wywołań COM, przeładowanie dokumentu, dłuższy czas oczekiwania na Crystal Reports.
+     */
+    protected function printWzDocumentToPdfFile($file_name)
+    {
+        $tryOrder = array(null);
+        $cfgTpl = $this->getPdfTemplateIdFromCfg(11);
+        if ($cfgTpl !== null && (int) $cfgTpl > 0) {
+            $tryOrder[] = (int) $cfgTpl;
+        }
+        foreach ($this->findCompatibleWzRptWzorzecIds() as $id) {
+            if (!in_array($id, $tryOrder, true)) {
+                $tryOrder[] = $id;
+            }
+        }
+
+        $tried = array();
+        foreach ($tryOrder as $tplId) {
+            $this->reloadDocumentGtForPrint();
+            usleep(400000);
+            $label = $tplId === null ? 'default' : (string) $tplId;
+            $tried[] = $label;
+            if ($this->tryPrintDrukujDoPliku($file_name, $tplId)) {
                 Logger::getInstance()->log(
                     'api',
-                    'PDF: domyślny wzorzec z DB wzw_Id=' . (int) $data[0]['id']
-                        . ', nazwa=' . (isset($data[0]['template_name']) ? $data[0]['template_name'] : '')
-                        . ', host=' . (isset($data[0]['host_name']) ? $data[0]['host_name'] : '')
-                        . ', typ=' . $typ,
+                    'PDF WZ OK: ' . $this->doc_ref . ' metoda=' . ($tplId === null ? 'DrukujDoPliku' : 'DrukujDoPliku(' . $tplId . ')'),
                     __CLASS__ . '->' . __FUNCTION__,
                     __LINE__
                 );
-                return (int) $data[0]['id'];
+                return $tplId === null ? 'standard' : 'template';
             }
-        } catch (Exception $e) {
-            Logger::getInstance()->log('api', 'PDF: domyślny wzorzec z DB: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
         }
-        return null;
+
+        Logger::getInstance()->log(
+            'api',
+            'PDF WZ FAIL: ' . $this->doc_ref . ' — próbowano: ' . implode(',', $tried),
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+        return 'standard';
+    }
+
+    protected function acquirePdfGenerationLock($timeoutSeconds = 120)
+    {
+        $lockDir = defined('LOG_DIR') ? LOG_DIR : sys_get_temp_dir();
+        $lockFile = rtrim($lockDir, "\\/") . DIRECTORY_SEPARATOR . 'pdf_generation.lock';
+        $fp = @fopen($lockFile, 'c+');
+        if (!$fp) {
+            return null;
+        }
+        $deadline = time() + (int) $timeoutSeconds;
+        while (!@flock($fp, LOCK_EX | LOCK_NB)) {
+            if (time() >= $deadline) {
+                fclose($fp);
+                throw new Exception('Timeout oczekiwania na dostęp do Sfery (inny proces generuje PDF). Spróbuj ponownie za chwilę.');
+            }
+            usleep(300000);
+        }
+        return $fp;
+    }
+
+    protected function releasePdfGenerationLock($fp)
+    {
+        if (is_resource($fp)) {
+            @flock($fp, LOCK_UN);
+            fclose($fp);
+        }
+    }
+
+    protected function tryPrintWithTemplate($wzorzecId, $file_name)
+    {
+        $wzorzecId = (int) $wzorzecId;
+        if ($wzorzecId <= 0 || !$this->isValidPdfTemplateId($wzorzecId)) {
+            return false;
+        }
+        if (is_file($file_name)) {
+            @unlink($file_name);
+        }
+        try {
+            $this->documentGt->DrukujDoPlikuWgWzorca($wzorzecId, $file_name, 0);
+        } catch (Exception $e) {
+            Logger::getInstance()->log(
+                'api',
+                'PDF: DrukujDoPlikuWgWzorca(wzw_Id=' . $wzorzecId . ') wyjątek: ' . $e->getMessage(),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+            return false;
+        }
+        if ($this->waitForPdfFile($file_name, 10, 250000)) {
+            return true;
+        }
+        $located = $this->locateGeneratedPdf($file_name);
+        return $located !== false;
     }
 
     /**
@@ -241,55 +615,65 @@ class Document extends SubiektObj
 
     /**
      * Generuje PDF przez Sferę.
-     * Kolejność: wzorzec KSeF (FS/KFS z numerem) → jawny/domyślny wzorzec (DrukujDoPlikuWgWzorca) → DrukujDoPliku.
+     * Kolejność: wzorzec KSeF (FS/KFS z numerem) → lista wzorców RPT (DrukujDoPlikuWgWzorca) → DrukujDoPliku.
      * gtaTypPlikuPDF = 0 (pomoc Sfery: TypPlikuEnum).
      */
     protected function printDocumentToPdfFile($file_name)
     {
+        $triedTemplates = array();
         $useKsef = $this->dokHanHasAssignedKsef($this->gt_id);
+
+        // WZ: osobna ścieżka (mniej wywołań COM niż pętla wzorców).
+        if ((int) $this->doc_type_id === 11 && !$useKsef) {
+            return $this->printWzDocumentToPdfFile($file_name);
+        }
+
         if ($useKsef) {
             $wzorzecId = $this->getKsefPdfTemplateIdFromCfg();
             if ($wzorzecId === null) {
                 $wzorzecId = $this->findAutoKsefWydrukWzorzecId();
             }
             if ($wzorzecId !== null) {
-                try {
-                    $this->documentGt->DrukujDoPlikuWgWzorca($wzorzecId, $file_name, 0);
+                $triedTemplates[] = (int) $wzorzecId;
+                if ($this->tryPrintWithTemplate($wzorzecId, $file_name)) {
                     return 'ksef';
-                } catch (Exception $e) {
-                    Logger::getInstance()->log('api', 'KSeF PDF: DrukujDoPlikuWgWzorca nie powiodło się (' . $e->getMessage() . ') — próba standardowego wzorca.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
                 }
+                Logger::getInstance()->log('api', 'KSeF PDF: wzorzec wzw_Id=' . $wzorzecId . ' nie utworzył pliku — próba standardowych wzorców.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
             } else {
-                Logger::getInstance()->log('api', 'KSeF PDF: brak wzorca KSeF w INI/DB — próba standardowego wzorca.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                Logger::getInstance()->log('api', 'KSeF PDF: brak wzorca KSeF w INI/DB — próba standardowych wzorców.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
             }
         }
 
-        $wzorzecId = $this->getPdfTemplateIdFromCfg();
-        if ($wzorzecId === null) {
-            $wzorzecId = $this->findDefaultWydrukWzorzecId();
-        }
-        if ($wzorzecId !== null) {
-            try {
-                $this->documentGt->DrukujDoPlikuWgWzorca($wzorzecId, $file_name, 0);
+        foreach ($this->collectPdfTemplateCandidates() as $wzorzecId) {
+            $triedTemplates[] = (int) $wzorzecId;
+            if ($this->tryPrintWithTemplate($wzorzecId, $file_name)) {
+                Logger::getInstance()->log('api', 'PDF: utworzono plikiem wzw_Id=' . $wzorzecId . ' dla ' . $this->doc_ref, __CLASS__ . '->' . __FUNCTION__, __LINE__);
                 return $useKsef ? 'standard_fallback' : 'template';
-            } catch (Exception $e) {
-                Logger::getInstance()->log(
-                    'api',
-                    'PDF: DrukujDoPlikuWgWzorca(wzw_Id=' . $wzorzecId . ') błąd: ' . $e->getMessage() . ' — fallback DrukujDoPliku.',
-                    __CLASS__ . '->' . __FUNCTION__,
-                    __LINE__
-                );
             }
-        } else {
+        }
+
+        if (empty($triedTemplates)) {
             Logger::getInstance()->log(
                 'api',
                 'PDF: brak wzorca w INI/DB dla typu ' . (int) $this->doc_type_id . ' (' . $this->doc_type . ', doc_ref=' . $this->doc_ref . ') — używam DrukujDoPliku.',
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
+        } else {
+            Logger::getInstance()->log(
+                'api',
+                'PDF: żaden wzorzec nie utworzył pliku (próbowano: ' . implode(',', $triedTemplates) . ') — fallback DrukujDoPliku dla ' . $this->doc_ref,
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
         }
 
-        $this->documentGt->DrukujDoPliku($file_name, 0);
+        if (is_file($file_name)) {
+            @unlink($file_name);
+        }
+        if (!$this->tryPrintStandardDrukujDoPliku($file_name)) {
+            Logger::getInstance()->log('api', 'PDF: DrukujDoPliku (fallback) nie utworzył pliku dla ' . $this->doc_ref, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        }
         return $useKsef ? 'standard_fallback' : 'standard';
     }
 
@@ -321,9 +705,9 @@ class Document extends SubiektObj
             return false;
         }
 
-        $temp_dir = sys_get_temp_dir();
+        $temp_dir = $this->resolvePdfTempDir();
         if (!is_string($temp_dir) || $temp_dir === '' || !is_dir($temp_dir)) {
-            throw new Exception('Nie można ustalić katalogu tymczasowego na serwerze (sys_get_temp_dir).');
+            throw new Exception('Nie można ustalić katalogu tymczasowego na serwerze (pdf_temp_dir / tmp/pdf).');
         }
         if (!is_writable($temp_dir)) {
             throw new Exception('Brak uprawnień zapisu do katalogu tymczasowego: ' . $temp_dir);
@@ -331,26 +715,28 @@ class Document extends SubiektObj
 
         $safeId = (int) $this->gt_id;
         $uniq = bin2hex(random_bytes(8));
-        $file_name = rtrim($temp_dir, "\\/") . DIRECTORY_SEPARATOR . $safeId . '_' . $uniq . '.pdf';
+        $file_name = $this->normalizePathForCom(
+            rtrim($temp_dir, "\\/") . DIRECTORY_SEPARATOR . $safeId . '_' . $uniq . '.pdf'
+        );
 
         $pdf_variant = 'standard';
+        $lockFp = null;
         try {
+            $lockFp = $this->acquirePdfGenerationLock();
+            $this->reloadDocumentGtForPrint();
             $pdf_variant = $this->printDocumentToPdfFile($file_name);
 
-            // COM potrafi zwrócić bez wyjątku, ale nie utworzyć pliku od razu — krótki retry.
-            $maxAttempts = 6;
-            $sleepMicros = 200000; // 200ms
-            for ($i = 0; $i < $maxAttempts; $i++) {
-                if (is_file($file_name) && filesize($file_name) > 0) {
-                    break;
+            if (!$this->waitForPdfFile($file_name)) {
+                $located = $this->locateGeneratedPdf($file_name);
+                if ($located !== false && $located !== $file_name) {
+                    $file_name = $this->normalizePathForCom($located);
                 }
-                usleep($sleepMicros);
             }
 
             if (!is_file($file_name)) {
                 $hint = ((int) $this->doc_type_id === 11)
-                    ? ' Sprawdź w Subiekcie domyślny wzorzec wydruku WZ (wy_WzDomyslny) lub ustaw pdf_template_wz w INI API.'
-                    : ' Sprawdź domyślny wzorzec wydruku w Subiekcie lub pdf_template_* w INI API.';
+                    ? ' Sprawdź w Subiekcie domyślny wzorzec wydruku WZ (wy_WzDomyslny) — musi być typu RPT, nie tekstowy — lub ustaw pdf_template_wz w INI API.'
+                    : ' Sprawdź domyślny wzorzec wydruku RPT w Subiekcie lub pdf_template_* w INI API.';
                 Logger::getInstance()->log(
                     'api',
                     'PDF nie został utworzony przez Sferę: doc_ref=' . $this->doc_ref . ', doc_type=' . $this->doc_type . ', gt_id=' . $safeId . ', tmp=' . $file_name . ', tmp_dir=' . $temp_dir . ', wariant=' . $pdf_variant,
@@ -398,6 +784,7 @@ class Document extends SubiektObj
             );
             throw $e;
         } finally {
+            $this->releasePdfGenerationLock($lockFp);
             if (isset($file_name) && is_string($file_name) && is_file($file_name)) {
                 @unlink($file_name);
             }
