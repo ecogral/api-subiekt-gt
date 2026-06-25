@@ -461,22 +461,16 @@ class Document extends SubiektObj
             @unlink($file_name);
         }
         $wzorzecId = $wzorzecId !== null ? (int) $wzorzecId : 0;
-        $method = $wzorzecId > 0 ? 'DrukujDoPliku(' . $wzorzecId . ', path, 0)' : 'DrukujDoPliku(path, 0)';
+        if ($wzorzecId > 0) {
+            return $this->tryPrintWithTemplate($wzorzecId, $file_name);
+        }
         try {
-            if ($wzorzecId > 0) {
-                $this->documentGt->DrukujDoPliku($wzorzecId, $file_name, 0);
-            } else {
-                $this->documentGt->DrukujDoPliku($file_name, 0);
-            }
+            $this->documentGt->DrukujDoPliku($file_name, 0);
         } catch (Exception $e) {
-            if ($wzorzecId > 0) {
-                Logger::getInstance()->log('api', 'PDF: ' . $method . ' wyjątek: ' . $e->getMessage() . ' — próba DrukujDoPlikuWgWzorca.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
-                return $this->tryPrintWithTemplate($wzorzecId, $file_name);
-            }
-            Logger::getInstance()->log('api', 'PDF: ' . $method . ' wyjątek: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log('api', 'PDF: DrukujDoPliku(path, 0) wyjątek: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return false;
         }
-        if ($this->waitForPdfFile($file_name, 40, 500000)) {
+        if ($this->waitForPdfFile($file_name, 12, 500000)) {
             return true;
         }
         return $this->locateGeneratedPdf($file_name) !== false;
@@ -488,35 +482,27 @@ class Document extends SubiektObj
     }
 
     /**
-     * Dedykowana ścieżka WZ — minimum wywołań COM, przeładowanie dokumentu, dłuższy czas oczekiwania na Crystal Reports.
+     * Dedykowana ścieżka WZ: najpierw domyślny DrukujDoPliku (2 arg.), potem jeden wzorzec z INI przez DrukujDoPlikuWgWzorca.
      */
     protected function printWzDocumentToPdfFile($file_name)
     {
-        $tryOrder = array(null);
-        $cfgTpl = $this->getPdfTemplateIdFromCfg(11);
-        if ($cfgTpl !== null && (int) $cfgTpl > 0) {
-            $tryOrder[] = (int) $cfgTpl;
-        }
-        foreach ($this->findCompatibleWzRptWzorzecIds() as $id) {
-            if (!in_array($id, $tryOrder, true)) {
-                $tryOrder[] = $id;
-            }
+        $tried = array();
+        $this->reloadDocumentGtForPrint();
+        usleep(300000);
+        $tried[] = 'default';
+        if ($this->tryPrintDrukujDoPliku($file_name, null)) {
+            Logger::getInstance()->log('api', 'PDF WZ OK: ' . $this->doc_ref . ' metoda=DrukujDoPliku', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            return 'standard';
         }
 
-        $tried = array();
-        foreach ($tryOrder as $tplId) {
+        $cfgTpl = $this->getPdfTemplateIdFromCfg(11);
+        if ($cfgTpl !== null && (int) $cfgTpl > 0) {
             $this->reloadDocumentGtForPrint();
-            usleep(400000);
-            $label = $tplId === null ? 'default' : (string) $tplId;
-            $tried[] = $label;
-            if ($this->tryPrintDrukujDoPliku($file_name, $tplId)) {
-                Logger::getInstance()->log(
-                    'api',
-                    'PDF WZ OK: ' . $this->doc_ref . ' metoda=' . ($tplId === null ? 'DrukujDoPliku' : 'DrukujDoPliku(' . $tplId . ')'),
-                    __CLASS__ . '->' . __FUNCTION__,
-                    __LINE__
-                );
-                return $tplId === null ? 'standard' : 'template';
+            usleep(300000);
+            $tried[] = (string) (int) $cfgTpl;
+            if ($this->tryPrintDrukujDoPliku($file_name, (int) $cfgTpl)) {
+                Logger::getInstance()->log('api', 'PDF WZ OK: ' . $this->doc_ref . ' metoda=DrukujDoPlikuWgWzorca(' . (int) $cfgTpl . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+                return 'template';
             }
         }
 
@@ -704,6 +690,9 @@ class Document extends SubiektObj
         if (!$this->is_exists) {
             return false;
         }
+
+        @set_time_limit(90);
+        @ini_set('max_execution_time', '90');
 
         $temp_dir = $this->resolvePdfTempDir();
         if (!is_string($temp_dir) || $temp_dir === '' || !is_dir($temp_dir)) {
