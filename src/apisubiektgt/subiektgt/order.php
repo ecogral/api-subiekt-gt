@@ -35,6 +35,9 @@ class Order extends SubiektObj
     protected $pay_point_id = 0;
     protected $projected_value = 0;
     protected $projected_profit = 0;
+    protected $status_ex = 0;
+    protected $fully_realized = false;
+    protected $issue_documents = array();
 
 
     public function __construct($subiektGt, $orderDetail = array())
@@ -329,6 +332,12 @@ class Order extends SubiektObj
         $this->order_ref = $o['dok_NrPelny'] ?? '';
         $this->reservation = (bool) ($this->orderGt->Rezerwacja ?? false);
         $this->state = $o['dok_Status'] ?? 0;
+        $this->status_ex = (int) ($o['dok_StatusEx'] ?? 0);
+        $this->fully_realized = self::isOrderComFullyRealized($this->orderGt, $this->state, $this->status_ex);
+        if ($this->fully_realized) {
+            $this->reservation = false;
+        }
+        $this->issue_documents = self::getIssueRefsForOrder($this->order_ref);
         $this->amount = $o['dok_WartBrutto'] ?? 0;
         $this->projected_value = $o['dok_WartMag'] ?? 0;
         $this->projected_profit = $o['dok_PrognozowanyZysk'] ?? (($o['dok_WartTwNetto'] ?? 0) - ($o['dok_WartMag'] ?? 0));
@@ -340,12 +349,19 @@ class Order extends SubiektObj
         $customer = Customer::getCustomerById($this->orderGt->KontrahentId);
         $this->customer = $customer;
 
+        $this->products = array();
         $positions = array();
         for ($i = 1; $i <= $this->orderGt->Pozycje->Liczba(); $i++) {
             $positions[$this->orderGt->Pozycje->Element($i)->Id]['name'] = $this->orderGt->Pozycje->Element($i)->TowarNazwa;
             $positions[$this->orderGt->Pozycje->Element($i)->Id]['code'] = $this->orderGt->Pozycje->Element($i)->TowarSymbol;
         }
 
+
+        $comPositionsById = array();
+        for ($i = 1; $i <= $this->orderGt->Pozycje->Liczba(); $i++) {
+            $comPos = $this->orderGt->Pozycje->Element($i);
+            $comPositionsById[(int) $comPos->Id] = $comPos;
+        }
 
         $products = $this->getPositionsByOrderId($this->gt_id);
         foreach ($products as $p) {
@@ -357,6 +373,8 @@ class Order extends SubiektObj
                 'price_gross' => $p['ob_CenaBrutto'],
                 'total_net' => $p['ob_WartNetto'],
                 'total_gross' => $p['ob_WartBrutto']);
+            $comPos = isset($comPositionsById[(int) $p['ob_Id']]) ? $comPositionsById[(int) $p['ob_Id']] : null;
+            $p_a = self::appendRealizationFieldsToProduct($p_a, $comPos, (float) $p['ob_Ilosc']);
             $this->products[] = $p_a;
         }
 
@@ -364,7 +382,7 @@ class Order extends SubiektObj
 
     protected function getOrderById($id)
     {
-        $sql = "SELECT d.dok_Id, d.dok_NrPelnyOryg, d.dok_Uwagi, d.dok_NrPelny, d.dok_Status,
+        $sql = "SELECT d.dok_Id, d.dok_NrPelnyOryg, d.dok_Uwagi, d.dok_NrPelny, d.dok_Status, d.dok_StatusEx,
                        d.dok_WartBrutto, d.dok_WartNetto, d.dok_WartTwNetto, d.dok_WartMag,
                        (d.dok_WartTwNetto - d.dok_WartMag) AS dok_PrognozowanyZysk,
                        d.dok_TerminRealizacji, d.dok_PrzetworzonoZKwZD,
@@ -409,14 +427,677 @@ class Order extends SubiektObj
         return array('order_ref' => $this->order_ref,
             'is_exists' => $this->is_exists,
             'state' => $this->state,
+            'status_ex' => $this->status_ex,
+            'reservation' => (bool) $this->reservation,
+            'fully_realized' => $this->fully_realized,
+            'is_realized' => $this->fully_realized,
+            'is_fulfilled' => $this->fully_realized,
             'order_processing' => $this->order_processing,
             'id_flag' => $this->id_flag,
             'flag_txt' => $this->flag_txt,
             'amount' => $this->amount,
             'projected_value' => $this->projected_value,
             'projected_profit' => $this->projected_profit,
-            'sell_doc' => $this->selling_doc
+            'sell_doc' => $this->selling_doc,
+            'issue_documents' => $this->issue_documents,
+            'wz_refs' => $this->issue_documents,
         );
+    }
+
+    /**
+     * Warianty numeru ZK (ZK 123/… vs ZK123/…).
+     *
+     * @param string $orderRef
+     * @return array
+     */
+    public static function orderRefVariants($orderRef)
+    {
+        $ref = trim((string) $orderRef);
+        $variants = array();
+        if ($ref !== '') {
+            $variants[] = $ref;
+        }
+        if (preg_match('/^ZK\s*(.+)$/iu', $ref, $matches)) {
+            $core = trim((string) $matches[1]);
+            if ($core !== '') {
+                $variants[] = 'ZK ' . $core;
+                $variants[] = 'ZK' . $core;
+            }
+        }
+        return array_values(array_unique($variants));
+    }
+
+    /**
+     * Czy żądanie wymaga pełnej realizacji ZK.
+     * Bez flag — zachowanie wsteczne (false). Pełna realizacja gdy:
+     * full_realization / realize_all = true lub partial = false.
+     *
+     * @param array $detail
+     * @return bool
+     */
+    public static function isFullRealizationRequested(array $detail)
+    {
+        if (array_key_exists('partial', $detail)) {
+            $partial = filter_var($detail['partial'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($partial === false) {
+                return true;
+            }
+            if ($partial === true) {
+                return false;
+            }
+        }
+
+        foreach (array('full_realization', 'realize_all') as $flag) {
+            if (!array_key_exists($flag, $detail)) {
+                continue;
+            }
+            $value = filter_var($detail[$flag], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($value === true) {
+                return true;
+            }
+            if ($value === false) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Lista numerów WZ powiązanych z ZK (dok_NrPelnyOryg).
+     *
+     * @param string $orderRef
+     * @return array
+     */
+    public static function getIssueRefsForOrder($orderRef)
+    {
+        $refs = array();
+        foreach (self::orderRefVariants($orderRef) as $variant) {
+            $safeRef = str_replace("'", "''", $variant);
+            $sql = "SELECT d.dok_NrPelny
+                    FROM dok__Dokument d
+                    WHERE d.dok_Typ = 11
+                    AND d.dok_Status >= 0
+                    AND d.dok_NrPelnyOryg = '{$safeRef}'
+                    ORDER BY d.dok_Id ASC";
+            $data = MSSql::getInstance()->query($sql);
+            if (!is_array($data)) {
+                continue;
+            }
+            foreach ($data as $row) {
+                if (!empty($row['dok_NrPelny'])) {
+                    $refs[] = (string) $row['dok_NrPelny'];
+                }
+            }
+        }
+        return array_values(array_unique($refs));
+    }
+
+    /**
+     * Wczytuje ZK po order_ref (z wariantami numeru).
+     *
+     * @param object $subiektGt
+     * @param array $orderDetail
+     * @return Order|null
+     */
+    public static function loadExistingByRefVariants($subiektGt, array $orderDetail)
+    {
+        $requested = isset($orderDetail['order_ref']) ? trim((string) $orderDetail['order_ref']) : '';
+        $variants = self::orderRefVariants($requested);
+        foreach ($variants as $variant) {
+            $detail = $orderDetail;
+            $detail['order_ref'] = $variant;
+            $order = new self($subiektGt, $detail);
+            if ($order->isExists()) {
+                return $order;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Domknięcie ZK — order/fulfill (fallback po WZ).
+     *
+     * @return array
+     * @throws Exception
+     */
+    public function fulfill()
+    {
+        if (!$this->order_ref) {
+            throw new Exception('Brak parametru order_ref – nie można zrealizować zamówienia.');
+        }
+        if (!$this->is_exists || !$this->orderGt) {
+            throw new Exception('Zamówienie nie istnieje lub nie udało się go wczytać: ' . $this->order_ref);
+        }
+        if (!self::isFullRealizationRequested($this->orderDetail)) {
+            throw new Exception('order/fulfill obsługuje wyłącznie pełną realizację (full_realization / realize_all).');
+        }
+
+        $result = $this->fulfillRemainingToWz(true);
+        Logger::getInstance()->log(
+            'api',
+            'fulfill: order_ref=' . $this->order_ref
+                . ', fulfilled=' . (!empty($result['fulfilled']) ? 'tak' : 'nie'),
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+
+        return $result;
+    }
+
+    /**
+     * Tworzy WZ z zamówienia ZK.
+     *
+     * @param bool $fullRealization
+     * @param string $reference
+     * @return array
+     * @throws Exception
+     */
+    public function createWzFromOrder($fullRealization = true, $reference = '')
+    {
+        if (!$this->is_exists || !$this->orderGt) {
+            throw new Exception('Zamówienie nie istnieje lub nie udało się go wczytać: ' . $this->order_ref);
+        }
+
+        $issueDoc = $this->subiektGt->SuDokumentyManager->DodajWZ();
+        $issueDoc->NaPodstawie((int) $this->gt_id);
+
+        if ($fullRealization) {
+            $this->applyRemainingQuantitiesToIssueDoc($this->orderGt, $issueDoc);
+        }
+
+        if ((int) $issueDoc->Pozycje->Liczba() <= 0) {
+            try {
+                $issueDoc->Anuluj();
+            } catch (\Exception $e) {
+            }
+            throw new Exception('Brak pozycji do wydania na WZ dla zamówienia: ' . $this->order_ref);
+        }
+
+        if ($reference !== '') {
+            $issueDoc->Uwagi = Helper::toWin($reference);
+        }
+
+        $issueDoc->Wystawil = Helper::toWin($this->cfg->getIdPerson());
+        $shortages = $this->saveIssueDocWithStockCheck($issueDoc);
+        if ($shortages !== null) {
+            return array(
+                'stock_failed' => true,
+                'shortages' => $shortages,
+            );
+        }
+
+        $docRef = isset($issueDoc->NumerPelny) ? trim((string) $issueDoc->NumerPelny) : '';
+        if ($docRef === '') {
+            throw new Exception('Brak numeru dokumentu WZ po zapisie dla zamówienia: ' . $this->order_ref);
+        }
+
+        $this->reloadOrderFromGt();
+        if ($fullRealization) {
+            $this->closeOrderAsFulfilledIfPossible();
+        }
+
+        return $this->buildWzResultPayload($docRef, false);
+    }
+
+    /**
+     * Domyka ZK (bez duplikatu WZ, gdy WZ już pokrywa całość).
+     *
+     * @param bool $createWzWhenNeeded
+     * @return array
+     * @throws Exception
+     */
+    public function fulfillRemainingToWz($createWzWhenNeeded = true)
+    {
+        if (!$this->is_exists || !$this->orderGt) {
+            throw new Exception('Zamówienie nie istnieje lub nie udało się go wczytać: ' . $this->order_ref);
+        }
+
+        $this->reloadOrderFromGt();
+
+        if (self::isOrderComFullyRealized($this->orderGt, (int) $this->state, (int) $this->status_ex)) {
+            return $this->buildFulfillResultPayload(true, 'ZK jest w pełni zrealizowane w Subiekcie.');
+        }
+
+        $remainingQty = self::sumRemainingToRealize($this->orderGt);
+        $existingIssues = self::getIssueRefsForOrder($this->order_ref);
+
+        if ($remainingQty <= 0.00001) {
+            $this->closeOrderAsFulfilledIfPossible();
+            $this->reloadOrderFromGt();
+            return $this->buildFulfillResultPayload(
+                self::isOrderComFullyRealized($this->orderGt, (int) $this->state, (int) $this->status_ex)
+                    || !((bool) $this->reservation),
+                'ZK domknięte bez tworzenia kolejnego WZ.'
+            );
+        }
+
+        if (!empty($existingIssues) && !$createWzWhenNeeded) {
+            return $this->buildFulfillResultPayload(false, 'ZK ma pozostałości do realizacji.');
+        }
+
+        if (!$createWzWhenNeeded) {
+            return $this->buildFulfillResultPayload(false, 'ZK ma pozostałości do realizacji, tworzenie WZ wyłączone.');
+        }
+
+        $issueDoc = $this->subiektGt->SuDokumentyManager->DodajWZ();
+        $issueDoc->NaPodstawie((int) $this->gt_id);
+        $this->applyRemainingQuantitiesToIssueDoc($this->orderGt, $issueDoc);
+
+        if ((int) $issueDoc->Pozycje->Liczba() <= 0) {
+            try {
+                $issueDoc->Anuluj();
+            } catch (\Exception $e) {
+            }
+            $this->closeOrderAsFulfilledIfPossible();
+            $this->reloadOrderFromGt();
+            return $this->buildFulfillResultPayload(
+                self::isOrderComFullyRealized($this->orderGt, (int) $this->state, (int) $this->status_ex),
+                'Brak pozycji na WZ — próba domknięcia ZK.'
+            );
+        }
+
+        $issueDoc->Wystawil = Helper::toWin($this->cfg->getIdPerson());
+        $shortages = $this->saveIssueDocWithStockCheck($issueDoc);
+        if ($shortages !== null) {
+            return array_merge($this->buildFulfillResultPayload(false, 'Brak towaru w magazynie.'), array(
+                'shortages' => $shortages,
+            ));
+        }
+
+        $this->reloadOrderFromGt();
+        $this->closeOrderAsFulfilledIfPossible();
+        $this->reloadOrderFromGt();
+
+        $docRef = isset($issueDoc->NumerPelny) ? trim((string) $issueDoc->NumerPelny) : '';
+        $payload = $this->buildFulfillResultPayload(
+            self::isOrderComFullyRealized($this->orderGt, (int) $this->state, (int) $this->status_ex),
+            $docRef !== '' ? 'Utworzono WZ i domknięto ZK.' : null
+        );
+        if ($docRef !== '') {
+            $payload['doc_ref'] = $docRef;
+        }
+
+        return $payload;
+    }
+
+    protected function reloadOrderFromGt()
+    {
+        if ($this->order_ref === '' || !$this->subiektGt) {
+            return;
+        }
+        if ($this->subiektGt->SuDokumentyManager->Istnieje($this->order_ref)) {
+            $this->orderGt = $this->subiektGt->SuDokumentyManager->Wczytaj($this->order_ref);
+            $this->getGtObject();
+            $this->is_exists = true;
+        }
+    }
+
+    /**
+     * Zapis WZ z weryfikacją stanów (ZapiszSymulacja).
+     *
+     * @param mixed $issueDoc
+     * @return array|null shortages lub null przy sukcesie
+     * @throws Exception
+     */
+    protected function saveIssueDocWithStockCheck($issueDoc)
+    {
+        try {
+            $issueDoc->ZapiszSymulacja();
+        } catch (\Exception $e) {
+            $shortages = $this->collectShortagesFromIssueDoc($issueDoc);
+            if (!empty($shortages)) {
+                try {
+                    $issueDoc->Anuluj();
+                } catch (\Exception $cancelException) {
+                }
+                return $shortages;
+            }
+            throw $e;
+        }
+
+        if ($this->issueDocHasShortages($issueDoc)) {
+            $shortages = $this->collectShortagesFromIssueDoc($issueDoc);
+            try {
+                $issueDoc->Anuluj();
+            } catch (\Exception $cancelException) {
+            }
+            return !empty($shortages) ? $shortages : array(array(
+                'sku' => '',
+                'name' => 'Brak towaru w magazynie',
+                'required' => 0,
+                'available' => 0,
+                'missing' => 0,
+            ));
+        }
+
+        $issueDoc->Zapisz();
+        return null;
+    }
+
+    /**
+     * @param mixed $issueDoc
+     * @return bool
+     */
+    protected function issueDocHasShortages($issueDoc)
+    {
+        try {
+            return isset($issueDoc->PozycjeBrakujace) && (int) $issueDoc->PozycjeBrakujace->Liczba() > 0;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * @param mixed $issueDoc
+     * @return array
+     */
+    protected function collectShortagesFromIssueDoc($issueDoc)
+    {
+        $shortages = array();
+        try {
+            if (!isset($issueDoc->PozycjeBrakujace)) {
+                return $shortages;
+            }
+            $count = (int) $issueDoc->PozycjeBrakujace->Liczba();
+            for ($i = 1; $i <= $count; $i++) {
+                $pos = $issueDoc->PozycjeBrakujace->Element($i);
+                $sku = '';
+                $name = '';
+                $required = 0.0;
+                $available = 0.0;
+                try {
+                    $sku = trim((string) $pos->TowarSymbol);
+                } catch (\Exception $e) {
+                }
+                try {
+                    $name = trim((string) $pos->TowarNazwa);
+                } catch (\Exception $e) {
+                }
+                try {
+                    $required = (float) $pos->IloscJm;
+                } catch (\Exception $e) {
+                }
+                try {
+                    $available = (float) $pos->IloscDostepna;
+                } catch (\Exception $e) {
+                    try {
+                        $available = (float) $pos->StanMagazynowy;
+                    } catch (\Exception $e2) {
+                        $available = 0.0;
+                    }
+                }
+                $missing = max(0.0, $required - $available);
+                if ($sku === '' && $name === '' && $required <= 0) {
+                    continue;
+                }
+                $shortages[] = array(
+                    'sku' => $sku,
+                    'code' => $sku,
+                    'symbol' => $sku,
+                    'name' => $name,
+                    'required' => $required,
+                    'available' => $available,
+                    'missing' => $missing,
+                );
+            }
+        } catch (\Exception $e) {
+            Logger::getInstance()->log('api', 'collectShortagesFromIssueDoc: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        }
+        return $shortages;
+    }
+
+    /**
+     * Oznacza ZK jako zrealizowane (dropdown „Zamówienie zrealizowane”), gdy brak pozostałości.
+     *
+     * @return bool
+     */
+    protected function closeOrderAsFulfilledIfPossible()
+    {
+        if (!$this->orderGt) {
+            return false;
+        }
+
+        if (self::sumRemainingToRealize($this->orderGt) > 0.00001) {
+            return false;
+        }
+
+        if (self::isOrderComFullyRealized($this->orderGt, (int) $this->state, (int) $this->status_ex)
+            && !(bool) $this->reservation) {
+            return true;
+        }
+
+        try {
+            $this->orderGt->Rezerwacja = false;
+            $this->orderGt->Przelicz();
+            $this->orderGt->Zapisz();
+        } catch (\Exception $e) {
+            Logger::getInstance()->log(
+                'api',
+                'closeOrderAsFulfilledIfPossible: ' . $e->getMessage(),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+            return false;
+        }
+
+        $this->reloadOrderFromGt();
+        return !((bool) $this->reservation) || self::isOrderComFullyRealized($this->orderGt, (int) $this->state, (int) $this->status_ex);
+    }
+
+    /**
+     * @param mixed $orderGt
+     * @param mixed $issueDoc
+     */
+    protected function applyRemainingQuantitiesToIssueDoc($orderGt, $issueDoc)
+    {
+        $remainingById = array();
+        $remainingBySymbol = array();
+
+        for ($i = 1; $i <= $orderGt->Pozycje->Liczba(); $i++) {
+            $pos = $orderGt->Pozycje->Element($i);
+            $toRealize = self::getComPositionQtyToRealize($pos);
+            $remainingById[(int) $pos->Id] = $toRealize;
+            $symbol = trim((string) $pos->TowarSymbol);
+            if ($symbol !== '') {
+                if (!isset($remainingBySymbol[$symbol])) {
+                    $remainingBySymbol[$symbol] = 0.0;
+                }
+                $remainingBySymbol[$symbol] += $toRealize;
+            }
+        }
+
+        $indicesToRemove = array();
+        for ($j = 1; $j <= $issueDoc->Pozycje->Liczba(); $j++) {
+            $wzPos = $issueDoc->Pozycje->Element($j);
+            $posId = (int) $wzPos->Id;
+            $symbol = trim((string) $wzPos->TowarSymbol);
+            $qty = null;
+
+            if (isset($remainingById[$posId])) {
+                $qty = (float) $remainingById[$posId];
+            } elseif ($symbol !== '' && isset($remainingBySymbol[$symbol])) {
+                $qty = (float) $remainingBySymbol[$symbol];
+                unset($remainingBySymbol[$symbol]);
+            }
+
+            if ($qty === null || $qty <= 0.00001) {
+                $indicesToRemove[] = $j;
+                continue;
+            }
+
+            $wzPos->IloscJm = $qty;
+        }
+
+        if (count($indicesToRemove) > 0) {
+            for ($k = count($indicesToRemove) - 1; $k >= 0; $k--) {
+                $idx = $indicesToRemove[$k];
+                if (method_exists($issueDoc->Pozycje, 'Usun')) {
+                    $issueDoc->Pozycje->Usun($idx);
+                } else {
+                    $issueDoc->Pozycje->Element($idx)->Usun();
+                }
+            }
+        }
+    }
+
+    /**
+     * @param mixed $position
+     */
+    public static function getComPositionQtyToRealize($position)
+    {
+        if (!$position) {
+            return 0.0;
+        }
+
+        $ordered = 0.0;
+        try {
+            $ordered = (float) $position->IloscJm;
+        } catch (\Exception $e) {
+            return 0.0;
+        }
+
+        $realized = 0.0;
+        try {
+            $realized = (float) $position->IloscZrealizowana;
+        } catch (\Exception $e) {
+            $realized = 0.0;
+        }
+
+        return max(0.0, $ordered - $realized);
+    }
+
+    /**
+     * @param mixed $orderGt
+     */
+    public static function sumRemainingToRealize($orderGt)
+    {
+        if (!$orderGt) {
+            return 0.0;
+        }
+
+        $sum = 0.0;
+        for ($i = 1; $i <= $orderGt->Pozycje->Liczba(); $i++) {
+            $sum += self::getComPositionQtyToRealize($orderGt->Pozycje->Element($i));
+        }
+
+        return $sum;
+    }
+
+    /**
+     * @param mixed $orderGt
+     */
+    public static function isOrderComFullyRealized($orderGt, $state = null, $statusEx = null)
+    {
+        if ($state !== null && in_array((int) $state, array(7, 8), true)) {
+            return true;
+        }
+
+        if ($statusEx !== null && (((int) $statusEx) & 4) === 4) {
+            return true;
+        }
+
+        if (!$orderGt) {
+            return false;
+        }
+
+        try {
+            $comState = (int) $orderGt->Status;
+            if (in_array($comState, array(7, 8), true)) {
+                return true;
+            }
+        } catch (\Exception $e) {
+        }
+
+        if ((int) $orderGt->Pozycje->Liczba() <= 0) {
+            return false;
+        }
+
+        return self::sumRemainingToRealize($orderGt) <= 0.00001;
+    }
+
+    /**
+     * @param array $product
+     * @param mixed $comPos
+     * @param float|null $orderedQtyFallback
+     * @return array
+     */
+    public static function appendRealizationFieldsToProduct(array $product, $comPos, $orderedQtyFallback = null)
+    {
+        $ordered = $orderedQtyFallback;
+        if ($ordered === null) {
+            $ordered = isset($product['qty']) ? (float) $product['qty'] : 0.0;
+        }
+
+        $toRealize = self::getComPositionQtyToRealize($comPos);
+        if ($comPos === null) {
+            $toRealize = $ordered;
+        }
+
+        $realized = max(0.0, (float) $ordered - $toRealize);
+        $product['qty_to_realize'] = $toRealize;
+        $product['qty_realized'] = $realized;
+        $product['qty_left'] = $toRealize;
+        $product['to_realize'] = $toRealize;
+        $product['do_realizacji'] = $toRealize;
+
+        return $product;
+    }
+
+    /**
+     * @param string|null $docRef
+     * @param bool $alreadyExists
+     * @return array
+     */
+    protected function buildWzResultPayload($docRef, $alreadyExists)
+    {
+        $fullyRealized = self::isOrderComFullyRealized($this->orderGt, (int) $this->state, (int) $this->status_ex);
+
+        return array(
+            'order_ref' => $this->order_ref,
+            'doc_ref' => $docRef,
+            'document_ref' => $docRef,
+            'issue_ref' => $docRef,
+            'doc_type' => 11,
+            'already_exists' => (bool) $alreadyExists,
+            'fully_realized' => $fullyRealized,
+            'is_realized' => $fullyRealized,
+            'is_fulfilled' => $fullyRealized,
+            'fulfilled' => $fullyRealized,
+            'reservation' => (bool) $this->reservation,
+            'remaining_qty' => self::sumRemainingToRealize($this->orderGt),
+            'state' => (int) $this->state,
+            'status_ex' => (int) $this->status_ex,
+            'issue_documents' => self::getIssueRefsForOrder($this->order_ref),
+            'wz_refs' => self::getIssueRefsForOrder($this->order_ref),
+        );
+    }
+
+    /**
+     * @param bool $fulfilled
+     * @param string|null $message
+     * @return array
+     */
+    protected function buildFulfillResultPayload($fulfilled, $message = null)
+    {
+        $fulfilled = (bool) $fulfilled;
+        $payload = array(
+            'order_ref' => $this->order_ref,
+            'fulfilled' => $fulfilled,
+            'fully_realized' => $fulfilled,
+            'is_realized' => $fulfilled,
+            'is_fulfilled' => $fulfilled,
+            'reservation' => $fulfilled ? false : (bool) $this->reservation,
+            'state' => (int) $this->state,
+            'status_ex' => (int) $this->status_ex,
+            'remaining_qty' => self::sumRemainingToRealize($this->orderGt),
+            'issue_documents' => self::getIssueRefsForOrder($this->order_ref),
+            'wz_refs' => self::getIssueRefsForOrder($this->order_ref),
+        );
+        if ($message !== null) {
+            $payload['message'] = $message;
+        }
+        return $payload;
     }
 
     /**

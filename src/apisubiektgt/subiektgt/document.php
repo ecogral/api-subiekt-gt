@@ -31,6 +31,10 @@ class Document extends SubiektObj
     protected $id_gr_flag = NULL;
     protected $flag_name = '';
     protected $flag_comment = '';
+    protected $status_ex = 0;
+    protected $fully_realized = false;
+    protected $reservation = false;
+    protected $issue_documents = array();
 
     /** Od tej daty (dok_DataWyst FS) zwracane są wyłącznie faktury z nadanym numerem KSeF w tabeli ksef_NumerKSeF (ksefnr_NumerKSeF), powiązanie dok_NumerKSeFId — wg dokumentacji struktury bazy Subiekt GT. */
     const KSEF_FS_FILTER_FROM = '2026-04-01';
@@ -787,12 +791,19 @@ class Document extends SubiektObj
             'is_exists' => $this->is_exists,
             'doc_type' => $this->doc_type,
             'state' => $this->state,
+            'status_ex' => $this->status_ex,
+            'reservation' => (bool) $this->reservation,
+            'fully_realized' => $this->fully_realized,
+            'is_realized' => $this->fully_realized,
+            'is_fulfilled' => $this->fully_realized,
             'accounting_state' => $this->accounting_state,
             'order_processing' => $this->order_processing,
             'id_flag' => $this->id_flag,
             'flag_name' => $this->flag_name,
             'flag_comment' => $this->flag_comment,
-            'amount' => $this->amount
+            'amount' => $this->amount,
+            'issue_documents' => $this->issue_documents,
+            'wz_refs' => $this->issue_documents,
         );
     }
 
@@ -812,6 +823,7 @@ class Document extends SubiektObj
         $this->comments = $o['dok_Uwagi'];
         $this->doc_ref = $o['dok_NrPelny'];
         $this->state = $o['dok_Status'];
+        $statusEx = (int) ($o['dok_StatusEx'] ?? 0);
         $this->amount = $o['dok_WartBrutto'];
         $this->date_of_delivery = $o['dok_TerminRealizacji'];
         $this->order_processing = $o['dok_PrzetworzonoZKwZD'];
@@ -827,10 +839,14 @@ class Document extends SubiektObj
             $this->customer = $customer;
         }
 
+        $this->products = array();
         $positions = array();
+        $comPositionsById = array();
         for ($i = 1; $i <= $this->documentGt->Pozycje->Liczba(); $i++) {
-            $positions[$this->documentGt->Pozycje->Element($i)->Id]['name'] = $this->documentGt->Pozycje->Element($i)->TowarNazwa;
-            $positions[$this->documentGt->Pozycje->Element($i)->Id]['code'] = $this->documentGt->Pozycje->Element($i)->TowarSymbol;
+            $comPos = $this->documentGt->Pozycje->Element($i);
+            $positions[$comPos->Id]['name'] = $comPos->TowarNazwa;
+            $positions[$comPos->Id]['code'] = $comPos->TowarSymbol;
+            $comPositionsById[(int) $comPos->Id] = $comPos;
         }
 
         $products = $this->getPositionsByOrderId($this->gt_id);
@@ -843,7 +859,25 @@ class Document extends SubiektObj
                 'price_gross' => $p['ob_CenaBrutto'],
                 'total_net' => $p['ob_WartNetto'],
                 'total_gross' => $p['ob_WartBrutto']);
+            if ((int) $this->doc_type_id === 16) {
+                $comPos = isset($comPositionsById[(int) $p['ob_Id']]) ? $comPositionsById[(int) $p['ob_Id']] : null;
+                $p_a = Order::appendRealizationFieldsToProduct($p_a, $comPos, (float) $p['ob_Ilosc']);
+            }
             $this->products[] = $p_a;
+        }
+
+        if ((int) $this->doc_type_id === 16) {
+            $this->status_ex = $statusEx;
+            $this->reservation = (bool) ($this->documentGt->Rezerwacja ?? false);
+            $this->fully_realized = Order::isOrderComFullyRealized(
+                $this->documentGt,
+                (int) $this->state,
+                $statusEx
+            );
+            if ($this->fully_realized) {
+                $this->reservation = false;
+            }
+            $this->issue_documents = Order::getIssueRefsForOrder($this->doc_ref);
         }
     }
 
@@ -1160,7 +1194,8 @@ class Document extends SubiektObj
     {
         try {
             $orderRef = isset($this->documentDetail['order_ref']) ? trim((string) $this->documentDetail['order_ref']) : '';
-            $reference = isset($this->documentDetail['reference']) ? (string) $this->documentDetail['reference'] : '';
+            $reference = isset($this->documentDetail['reference']) ? trim((string) $this->documentDetail['reference']) : '';
+            $fullRealization = Order::isFullRealizationRequested($this->documentDetail);
 
             if ($orderRef === '') {
                 return [
@@ -1170,14 +1205,37 @@ class Document extends SubiektObj
                 ];
             }
 
-            Logger::getInstance()->log('api', 'createIssueFromOrder start: order_ref=' . $orderRef . ', reference=' . $reference, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            Logger::getInstance()->log(
+                'api',
+                'createIssueFromOrder start: order_ref=' . $orderRef
+                    . ', reference=' . $reference
+                    . ', full_realization=' . ($fullRealization ? 'tak' : 'nie'),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
 
-            $orderId = $this->getOrderIdByReference($orderRef);
-            if ($orderId === null) {
+            $order = Order::loadExistingByRefVariants($this->subiektGt, $this->documentDetail);
+            if ($order === null) {
                 return [
                     'state' => 'error',
                     'message' => 'Nie znaleziono zamówienia o podanym order_ref',
                     'error' => 'ORDER_NOT_FOUND',
+                ];
+            }
+            $order->setCfg($this->cfg);
+            $orderSnapshot = $order->get();
+            $orderRef = isset($orderSnapshot['order_ref']) ? (string) $orderSnapshot['order_ref'] : $orderRef;
+            $orderGt = $order->getGt();
+
+            if ($fullRealization && Order::isOrderComFullyRealized(
+                $orderGt,
+                (int) ($orderSnapshot['state'] ?? -1),
+                (int) ($orderSnapshot['status_ex'] ?? 0)
+            )) {
+                return [
+                    'state' => 'fail',
+                    'message' => 'Zamówienie ZK ' . $orderRef . ' zostało już zrealizowane.',
+                    'error' => 'ORDER_ALREADY_FULFILLED',
                 ];
             }
 
@@ -1194,77 +1252,159 @@ class Document extends SubiektObj
             }
 
             if ($reservationRequested) {
-                $orderForReserve = new Order($this->subiektGt, [
-                    'order_ref' => $orderRef,
-                    'reservation' => true,
-                ]);
-                $orderForReserve->setCfg($this->cfg);
-                if ($orderForReserve->isExists()) {
-                    try {
-                        $orderForReserve->reserve();
-                        Logger::getInstance()->log(
-                            'api',
-                            'createIssueFromOrder: włączono rezerwację przed WZ dla ' . $orderRef,
-                            __CLASS__ . '->' . __FUNCTION__,
-                            __LINE__
-                        );
-                    } catch (Exception $reserveException) {
-                        Logger::getInstance()->log(
-                            'api',
-                            'createIssueFromOrder: nie udało się włączyć rezerwacji przed WZ: ' . $reserveException->getMessage(),
-                            __CLASS__ . '->' . __FUNCTION__,
-                            __LINE__
-                        );
-                    }
+                try {
+                    $order->reserve();
+                    Logger::getInstance()->log(
+                        'api',
+                        'createIssueFromOrder: włączono rezerwację przed WZ dla ' . $orderRef,
+                        __CLASS__ . '->' . __FUNCTION__,
+                        __LINE__
+                    );
+                } catch (Exception $reserveException) {
+                    Logger::getInstance()->log(
+                        'api',
+                        'createIssueFromOrder: nie udało się włączyć rezerwacji przed WZ: ' . $reserveException->getMessage(),
+                        __CLASS__ . '->' . __FUNCTION__,
+                        __LINE__
+                    );
                 }
             }
 
             $existingIssueRef = $this->getExistingIssueForOrder($orderRef);
             if ($existingIssueRef !== null && $existingIssueRef !== '') {
+                $fulfillment = null;
+                if ($fullRealization) {
+                    $fulfillment = $order->fulfillRemainingToWz(false);
+                }
+
+                $data = [
+                    'doc_ref' => $existingIssueRef,
+                    'document_ref' => $existingIssueRef,
+                    'issue_ref' => $existingIssueRef,
+                    'order_ref' => $orderRef,
+                    'doc_type' => 11,
+                    'already_exists' => true,
+                ];
+                if (is_array($fulfillment)) {
+                    $data = array_merge($data, $fulfillment);
+                    $data['doc_ref'] = $existingIssueRef;
+                    $data['document_ref'] = $existingIssueRef;
+                    $data['issue_ref'] = $existingIssueRef;
+                    $data['already_exists'] = true;
+                }
+
+                Logger::getInstance()->log(
+                    'api',
+                    'createIssueFromOrder: WZ już istnieje order_ref=' . $orderRef . ', doc_ref=' . $existingIssueRef
+                        . ', fully_realized=' . (!empty($data['fully_realized']) || !empty($data['fulfilled']) ? 'tak' : 'nie'),
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+
                 return [
                     'state' => 'success',
                     'message' => 'WZ already exists',
+                    'data' => $data,
+                ];
+            }
+
+            if ($fullRealization) {
+                $wzResult = $order->createWzFromOrder(true, $reference);
+            } else {
+                $issueDoc = $this->subiektGt->SuDokumentyManager->DodajWZ();
+                $issueDoc->NaPodstawie((int) $orderGt->Identyfikator);
+                if ($reference !== '') {
+                    $issueDoc->Uwagi = Helper::toWin($reference);
+                }
+                $issueDoc->Wystawil = Helper::toWin($this->cfg->getIdPerson());
+                $issueDoc->Zapisz();
+                $docRef = isset($issueDoc->NumerPelny) ? trim((string) $issueDoc->NumerPelny) : '';
+                $wzResult = [
+                    'doc_ref' => $docRef,
+                    'document_ref' => $docRef,
+                    'issue_ref' => $docRef,
+                    'fully_realized' => false,
+                    'fulfilled' => false,
+                ];
+            }
+
+            if (!empty($wzResult['stock_failed'])) {
+                return [
+                    'state' => 'fail',
+                    'message' => 'Brak towaru w magazynie — nie można utworzyć WZ dla ZK ' . $orderRef,
+                    'error' => 'INSUFFICIENT_STOCK',
                     'data' => [
-                        'doc_ref' => $existingIssueRef,
                         'order_ref' => $orderRef,
-                        'doc_type' => 11,
-                        'already_exists' => true,
+                        'shortages' => $wzResult['shortages'] ?? [],
                     ],
                 ];
             }
 
-            $issueDoc = $this->subiektGt->SuDokumentyManager->DodajWZ();
-            $issueDoc->NaPodstawie($orderId);
-            $issueDoc->Wystawil = Helper::toWin($this->cfg->getIdPerson());
-            $issueDoc->Zapisz();
-
-            $docRef = isset($issueDoc->NumerPelny) ? (string) $issueDoc->NumerPelny : '';
+            $docRef = isset($wzResult['doc_ref']) ? (string) $wzResult['doc_ref'] : '';
             if ($docRef === '') {
-                $docRef = $this->getExistingIssueForOrder($orderRef);
+                $docRef = (string) $this->getExistingIssueForOrder($orderRef);
             }
-            if ($docRef === null || $docRef === '') {
+            if ($docRef === '') {
                 throw new Exception('Brak numeru dokumentu WZ po zapisie');
             }
 
-            Logger::getInstance()->log('api', 'createIssueFromOrder success: order_ref=' . $orderRef . ', doc_ref=' . $docRef, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            if ($fullRealization && empty($wzResult['fully_realized']) && empty($wzResult['fulfilled'])) {
+                $followUp = $order->fulfillRemainingToWz(true);
+                if (is_array($followUp)) {
+                    if (!empty($followUp['shortages'])) {
+                        return [
+                            'state' => 'fail',
+                            'message' => 'Brak towaru w magazynie — nie można domknąć realizacji ZK ' . $orderRef,
+                            'error' => 'INSUFFICIENT_STOCK',
+                            'data' => [
+                                'order_ref' => $orderRef,
+                                'doc_ref' => $docRef,
+                                'shortages' => $followUp['shortages'],
+                            ],
+                        ];
+                    }
+                    $wzResult = array_merge($wzResult, $followUp);
+                }
+            }
+
+            $wzResult['doc_ref'] = $docRef;
+            $wzResult['document_ref'] = $docRef;
+            $wzResult['issue_ref'] = $docRef;
+            $wzResult['order_ref'] = $orderRef;
+            $wzResult['doc_type'] = 11;
+            $wzResult['already_exists'] = false;
+
+            Logger::getInstance()->log(
+                'api',
+                'createIssueFromOrder success: order_ref=' . $orderRef
+                    . ', doc_ref=' . $docRef
+                    . ', fully_realized=' . (!empty($wzResult['fully_realized']) || !empty($wzResult['fulfilled']) ? 'tak' : 'nie'),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
 
             return [
                 'state' => 'success',
                 'message' => 'WZ created',
-                'data' => [
-                    'doc_ref' => $docRef,
-                    'order_ref' => $orderRef,
-                    'doc_type' => 11,
-                    'already_exists' => false,
-                ],
+                'data' => $wzResult,
             ];
         } catch (Exception $e) {
-            Logger::getInstance()->log('api', 'createIssueFromOrder error: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            $message = $e->getMessage();
+            Logger::getInstance()->log('api', 'createIssueFromOrder error: ' . $message, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            if (stripos($message, 'zrealizowan') !== false) {
+                return [
+                    'state' => 'fail',
+                    'message' => $message,
+                    'error' => 'ORDER_ALREADY_FULFILLED',
+                ];
+            }
+
             return [
                 'state' => 'error',
                 'message' => 'Nie udało się utworzyć dokumentu WZ',
                 'error' => 'WZ_CREATE_FAILED',
-                'details' => $e->getMessage(),
+                'details' => $message,
             ];
         }
     }
