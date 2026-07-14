@@ -1143,6 +1143,52 @@ class Document extends SubiektObj
             throw $e;
         }
 
+        $servicesResult = null;
+        $appendServices = Order::isAppendServicesRequested($this->documentDetail)
+            || Order::isCopyServicesFromOrderRequested($this->documentDetail, true)
+            || !empty($this->documentDetail['services']);
+        if ($appendServices && (int) $this->doc_type_id === 11) {
+            $detailForServices = $this->documentDetail;
+            $orderRefForServices = isset($detailForServices['order_ref'])
+                ? trim((string) $detailForServices['order_ref'])
+                : '';
+            if ($orderRefForServices === '') {
+                $orderRefForServices = trim((string) $this->reference);
+            }
+            if ($orderRefForServices === '') {
+                $orderRefForServices = Order::resolveOrderRefForIssueSql($this->doc_ref);
+            }
+            if ($orderRefForServices !== '') {
+                $detailForServices['order_ref'] = $orderRefForServices;
+            }
+
+            $orderForServices = null;
+            if ($orderRefForServices !== '') {
+                $orderForServices = Order::loadExistingByRefVariants($this->subiektGt, array(
+                    'order_ref' => $orderRefForServices,
+                ));
+                if ($orderForServices !== null) {
+                    $orderForServices->setCfg($this->cfg);
+                }
+            }
+            if ($orderForServices === null) {
+                $orderForServices = new Order($this->subiektGt, array());
+                $orderForServices->setCfg($this->cfg);
+            }
+            $servicesResult = $orderForServices->appendMissingServicesToIssue(
+                $this->doc_ref,
+                $detailForServices
+            );
+        }
+
+        $fulfillmentRepair = null;
+        if ((int) $this->doc_type_id === 11) {
+            $fulfillmentRepair = Order::ensureOrderFulfilledAfterIssueSql(
+                $this->doc_ref,
+                $this->cfg ? (int) $this->cfg->getWarehouse() : 1
+            );
+        }
+
         $this->getGtObject();
         Logger::getInstance()->log(
             'api',
@@ -1155,6 +1201,9 @@ class Document extends SubiektObj
             'doc_ref' => $this->doc_ref,
             'doc_type' => $this->doc_type,
             'doc_type_id' => $this->doc_type_id,
+            'services_appended' => $servicesResult !== null ? (int) ($servicesResult['added'] ?? 0) : 0,
+            'service_codes' => $servicesResult !== null ? ($servicesResult['service_codes'] ?? array()) : array(),
+            'order_fulfillment_repair' => $fulfillmentRepair,
         ];
     }
 
@@ -1174,20 +1223,97 @@ class Document extends SubiektObj
         return (int) $data[0]['dok_Id'];
     }
 
-    protected function getExistingIssueForOrder($orderRef)
+    protected function getExistingIssueForOrder($orderRef, Order $order = null)
     {
-        $safeRef = str_replace("'", "''", (string) $orderRef);
-        $sql = "SELECT TOP 1 d.dok_NrPelny
-                FROM dok__Dokument d
-                WHERE d.dok_Typ = 11
-                AND d.dok_Status >= 0
-                AND d.dok_NrPelnyOryg = '{$safeRef}'
-                ORDER BY d.dok_Id DESC";
-        $data = MSSql::getInstance()->query($sql);
-        if (!is_array($data) || empty($data) || !isset($data[0]['dok_NrPelny'])) {
-            return null;
+        if ($order !== null) {
+            return $order->findValidIssueForOrder();
         }
-        return (string) $data[0]['dok_NrPelny'];
+
+        foreach (Order::orderRefVariants((string) $orderRef) as $variant) {
+            $safeRef = str_replace("'", "''", $variant);
+            $sql = "SELECT TOP 1 d.dok_NrPelny
+                    FROM dok__Dokument d
+                    WHERE d.dok_Typ = 11
+                    AND d.dok_Status >= 0
+                    AND d.dok_NrPelnyOryg = '{$safeRef}'
+                    ORDER BY d.dok_Id DESC";
+            $data = MSSql::getInstance()->query($sql);
+            if (is_array($data) && !empty($data) && isset($data[0]['dok_NrPelny'])) {
+                return (string) $data[0]['dok_NrPelny'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @param string $orderRef
+     * @param array $wzResult
+     * @param bool $fullRealization pełne ilości na WZ
+     * @param bool $closeOrder domknij ZK (status 7/8) + link WZ tylko na nagłówku ZK
+     * @param bool $alreadyExists
+     * @return array
+     */
+    protected function buildCreateIssueFromOrderResponse($orderRef, array $wzResult, $fullRealization, $closeOrder = false, $alreadyExists = false)
+    {
+        $docRef = isset($wzResult['doc_ref']) ? (string) $wzResult['doc_ref'] : '';
+        if ($docRef === '') {
+            $docRef = isset($wzResult['issue_ref']) ? (string) $wzResult['issue_ref'] : '';
+        }
+
+        $wzResult['doc_ref'] = $docRef;
+        $wzResult['document_ref'] = $docRef;
+        $wzResult['issue_ref'] = $docRef;
+        $wzResult['order_ref'] = $orderRef;
+        $wzResult['doc_type'] = 11;
+        $wzResult['already_exists'] = (bool) $alreadyExists;
+        $wzResult['full_realization'] = (bool) $fullRealization;
+        $wzResult['realize_as_wz'] = (bool) $fullRealization;
+        $wzResult['close_order'] = (bool) $closeOrder;
+
+        $fulfilled = !empty($wzResult['fulfilled']) || !empty($wzResult['fully_realized']);
+        $coverageComplete = !empty($wzResult['issue_coverage_complete']);
+        $zkClosed = !empty($wzResult['zk_closed'])
+            || Order::isOrderStatusFulfilled((int) ($wzResult['state'] ?? 0));
+        $wzResult['zk_closed'] = $zkClosed;
+
+        if ($docRef === '' && ($fullRealization || $closeOrder)) {
+            return array(
+                'state' => 'fail',
+                'message' => 'Nie udało się utworzyć WZ dla ZK ' . $orderRef,
+                'error' => 'WZ_CREATE_FAILED',
+                'data' => $wzResult,
+            );
+        }
+
+        if ($closeOrder && !$zkClosed && !$coverageComplete) {
+            return array(
+                'state' => 'fail',
+                'message' => 'WZ ' . ($docRef !== '' ? $docRef . ' ' : '')
+                    . 'istnieje, ale ZK ' . $orderRef . ' nie zostało domknięte w Subiekcie '
+                    . '(brak statusu „zrealizowane”).',
+                'error' => 'ORDER_NOT_CLOSED',
+                'data' => $wzResult,
+            );
+        }
+
+        $message = $alreadyExists ? 'WZ already exists' : 'WZ created';
+        if ($closeOrder && $zkClosed && $docRef !== '') {
+            $message = $alreadyExists ? 'WZ już istnieje, ZK zrealizowane.' : 'WZ wystawione, ZK zrealizowane (status 7/8).';
+        } elseif ($docRef !== '' && !$closeOrder) {
+            $message = $alreadyExists
+                ? 'WZ już istnieje — ZK pozostaje otwarte (close_order=false).'
+                : 'WZ wystawione — ZK otwarte (rezerwacja aktywna).';
+        } elseif ($docRef !== '' && $closeOrder && !$zkClosed) {
+            $message = $alreadyExists
+                ? 'WZ już istnieje — ZK nie domknięte (sprawdź pokrycie towarów).'
+                : 'WZ wystawione — ZK nie domknięte (sprawdź pokrycie towarów).';
+        }
+
+        return array(
+            'state' => 'success',
+            'message' => $message,
+            'data' => $wzResult,
+        );
     }
 
     public function createIssueFromOrder()
@@ -1195,7 +1321,9 @@ class Document extends SubiektObj
         try {
             $orderRef = isset($this->documentDetail['order_ref']) ? trim((string) $this->documentDetail['order_ref']) : '';
             $reference = isset($this->documentDetail['reference']) ? trim((string) $this->documentDetail['reference']) : '';
-            $fullRealization = Order::isFullRealizationRequested($this->documentDetail);
+            // Domyślnie: WZ + domknięcie ZK (7/8), żeby zwolnić rezerwacje. close_order=false zostawia ZK otwarte.
+            $fullRealization = Order::isFullRealizationRequested($this->documentDetail, false);
+            $closeOrder = Order::isCloseOrderRequested($this->documentDetail, true);
 
             if ($orderRef === '') {
                 return [
@@ -1209,7 +1337,9 @@ class Document extends SubiektObj
                 'api',
                 'createIssueFromOrder start: order_ref=' . $orderRef
                     . ', reference=' . $reference
-                    . ', full_realization=' . ($fullRealization ? 'tak' : 'nie'),
+                    . ', full_realization=' . ($fullRealization ? 'tak' : 'nie')
+                    . ', close_order=' . ($closeOrder ? 'tak' : 'nie')
+                    . ', copy_services=' . (Order::isCopyServicesFromOrderRequested($this->documentDetail, true) ? 'tak' : 'nie'),
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
@@ -1225,19 +1355,40 @@ class Document extends SubiektObj
             $order->setCfg($this->cfg);
             $orderSnapshot = $order->get();
             $orderRef = isset($orderSnapshot['order_ref']) ? (string) $orderSnapshot['order_ref'] : $orderRef;
-            $orderGt = $order->getGt();
+            $orderId = (int) ($orderSnapshot['gt_id'] ?? 0);
+            $prep = $order->prepareOrderForIssueFromApi();
+            Logger::getInstance()->log(
+                'api',
+                'createIssueFromOrder: prepareOrderForIssueFromApi order_ref=' . $orderRef
+                    . ', prepared=' . (!empty($prep['prepared']) ? 'tak' : 'nie')
+                    . ', state=' . (int) ($prep['state'] ?? 0)
+                    . ', reservation=' . (!empty($prep['reservation']) ? 'tak' : 'nie'),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+            $orderSnapshot = $order->get();
 
-            if ($fullRealization && Order::isOrderComFullyRealized(
-                $orderGt,
-                (int) ($orderSnapshot['state'] ?? -1),
-                (int) ($orderSnapshot['status_ex'] ?? 0)
-            )) {
-                return [
-                    'state' => 'fail',
-                    'message' => 'Zamówienie ZK ' . $orderRef . ' zostało już zrealizowane.',
-                    'error' => 'ORDER_ALREADY_FULFILLED',
-                ];
+            if ($closeOrder && $order->isBusinessComplete()) {
+                $existingIssueRef = $order->findValidIssueForOrder();
+                $data = array(
+                    'doc_ref' => $existingIssueRef !== null ? $existingIssueRef : '',
+                    'document_ref' => $existingIssueRef,
+                    'issue_ref' => $existingIssueRef,
+                    'fulfilled' => true,
+                    'fully_realized' => true,
+                    'state' => (int) ($orderSnapshot['state'] ?? 0),
+                );
+                Logger::getInstance()->log(
+                    'api',
+                    'createIssueFromOrder: ZK już zrealizowane order_ref=' . $orderRef
+                        . ', doc_ref=' . ($existingIssueRef ?? ''),
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                return $this->buildCreateIssueFromOrderResponse($orderRef, $data, $fullRealization, $closeOrder, true);
             }
+
+            $existingIssueRef = $order->findValidIssueForOrder();
 
             $reservationRequested = true;
             if (isset($this->documentDetail['reservation'])) {
@@ -1252,145 +1403,197 @@ class Document extends SubiektObj
             }
 
             if ($reservationRequested) {
-                try {
-                    $order->reserve();
+                $sqlReserved = Order::orderHasActiveReservationSql($orderId, $orderRef);
+                $comReserved = (bool) ($orderSnapshot['reservation'] ?? false);
+                $needsReservation = !$sqlReserved && !$comReserved;
+                $needsComSync = $sqlReserved && !$comReserved;
+                if ($needsReservation || $needsComSync) {
+                    try {
+                        $order->reserve();
+                        Logger::getInstance()->log(
+                            'api',
+                            'createIssueFromOrder: '
+                                . ($needsComSync ? 'zsynchronizowano' : 'włączono')
+                                . ' rezerwację COM przed WZ dla ' . $orderRef,
+                            __CLASS__ . '->' . __FUNCTION__,
+                            __LINE__
+                        );
+                    } catch (Exception $reserveException) {
+                        Logger::getInstance()->log(
+                            'api',
+                            'createIssueFromOrder: nie udało się włączyć rezerwacji przed WZ: '
+                                . $reserveException->getMessage(),
+                            __CLASS__ . '->' . __FUNCTION__,
+                            __LINE__
+                        );
+                    }
+                } else {
                     Logger::getInstance()->log(
                         'api',
-                        'createIssueFromOrder: włączono rezerwację przed WZ dla ' . $orderRef,
-                        __CLASS__ . '->' . __FUNCTION__,
-                        __LINE__
-                    );
-                } catch (Exception $reserveException) {
-                    Logger::getInstance()->log(
-                        'api',
-                        'createIssueFromOrder: nie udało się włączyć rezerwacji przed WZ: ' . $reserveException->getMessage(),
+                        'createIssueFromOrder: ZK ma rezerwację w SQL i COM, pomijam reserve() dla '
+                            . $orderRef,
                         __CLASS__ . '->' . __FUNCTION__,
                         __LINE__
                     );
                 }
             }
 
-            $existingIssueRef = $this->getExistingIssueForOrder($orderRef);
+            $existingIssueRef = $order->findValidIssueForOrder();
             if ($existingIssueRef !== null && $existingIssueRef !== '') {
                 $fulfillment = null;
-                if ($fullRealization) {
+                if ($closeOrder) {
                     $fulfillment = $order->fulfillRemainingToWz(false);
                 }
 
-                $data = [
+                $data = array(
                     'doc_ref' => $existingIssueRef,
                     'document_ref' => $existingIssueRef,
                     'issue_ref' => $existingIssueRef,
-                    'order_ref' => $orderRef,
-                    'doc_type' => 11,
-                    'already_exists' => true,
-                ];
+                );
                 if (is_array($fulfillment)) {
                     $data = array_merge($data, $fulfillment);
-                    $data['doc_ref'] = $existingIssueRef;
-                    $data['document_ref'] = $existingIssueRef;
-                    $data['issue_ref'] = $existingIssueRef;
-                    $data['already_exists'] = true;
+                }
+                if ($closeOrder) {
+                    $order->finalizeOrderAfterIssueSaved(array($existingIssueRef), true);
+                    $data = $order->enrichIssueResultPayload($data);
+                } else {
+                    $order->finalizeOrderAfterIssueSaved(array($existingIssueRef), false);
+                    $data = $order->enrichIssueResultPayload($data);
+                }
+
+                $shouldAppendServices = Order::isCopyServicesFromOrderRequested($this->documentDetail, true)
+                    || Order::isAppendServicesRequested($this->documentDetail)
+                    || !empty($this->documentDetail['services']);
+                if ($shouldAppendServices) {
+                    $appendResult = $order->appendMissingServicesToIssue(
+                        $existingIssueRef,
+                        $this->documentDetail
+                    );
+                    if (!empty($appendResult['added'])) {
+                        $data['services_appended'] = (int) $appendResult['added'];
+                        $data['service_codes'] = $appendResult['service_codes'];
+                        if ($closeOrder) {
+                            $order->finalizeOrderAfterIssueSaved(array($existingIssueRef), true);
+                            $data = $order->enrichIssueResultPayload($data);
+                        }
+                    }
+                }
+
+                $data = $this->attachFsCleanupToIssuePayload($data, $existingIssueRef);
+
+                if ($closeOrder) {
+                    $fulfillmentRepair = Order::ensureOrderFulfilledAfterIssueSql($orderRef);
+                    if (is_array($fulfillmentRepair) && ($fulfillmentRepair['state'] ?? '') === 'success') {
+                        $data = $order->enrichIssueResultPayload($data);
+                        $data['fulfillment_repaired'] = true;
+                    }
+                    $data['fulfillment_check'] = $fulfillmentRepair;
                 }
 
                 Logger::getInstance()->log(
                     'api',
                     'createIssueFromOrder: WZ już istnieje order_ref=' . $orderRef . ', doc_ref=' . $existingIssueRef
-                        . ', fully_realized=' . (!empty($data['fully_realized']) || !empty($data['fulfilled']) ? 'tak' : 'nie'),
+                        . ', zk_closed=' . (!empty($data['zk_closed']) ? 'tak' : 'nie'),
                     __CLASS__ . '->' . __FUNCTION__,
                     __LINE__
                 );
 
-                return [
-                    'state' => 'success',
-                    'message' => 'WZ already exists',
-                    'data' => $data,
-                ];
+                return $this->buildCreateIssueFromOrderResponse($orderRef, $data, $fullRealization, $closeOrder, true);
             }
 
-            if ($fullRealization) {
-                $wzResult = $order->createWzFromOrder(true, $reference);
-            } else {
-                $issueDoc = $this->subiektGt->SuDokumentyManager->DodajWZ();
-                $issueDoc->NaPodstawie((int) $orderGt->Identyfikator);
-                if ($reference !== '') {
-                    $issueDoc->Uwagi = Helper::toWin($reference);
-                }
-                $issueDoc->Wystawil = Helper::toWin($this->cfg->getIdPerson());
-                $issueDoc->Zapisz();
-                $docRef = isset($issueDoc->NumerPelny) ? trim((string) $issueDoc->NumerPelny) : '';
-                $wzResult = [
-                    'doc_ref' => $docRef,
-                    'document_ref' => $docRef,
-                    'issue_ref' => $docRef,
-                    'fully_realized' => false,
-                    'fulfilled' => false,
-                ];
-            }
+            $wzResult = $order->createWzFromOrder(
+                $fullRealization,
+                $reference,
+                $this->documentDetail,
+                $closeOrder
+            );
 
             if (!empty($wzResult['stock_failed'])) {
+                $shortages = isset($wzResult['shortages']) && is_array($wzResult['shortages'])
+                    ? $wzResult['shortages']
+                    : array();
+                $shortageParts = array();
+                foreach ($shortages as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+                    $code = trim((string) ($row['sku'] ?? $row['code'] ?? ''));
+                    $missing = (float) ($row['missing'] ?? 0);
+                    if ($code === '' || $missing <= 0.00001) {
+                        continue;
+                    }
+                    $shortageParts[] = $code . ' (brakuje ' . $missing . ')';
+                }
+                $detail = !empty($shortageParts) ? ': ' . implode(', ', $shortageParts) : '';
+
                 return [
                     'state' => 'fail',
-                    'message' => 'Brak towaru w magazynie — nie można utworzyć WZ dla ZK ' . $orderRef,
+                    'message' => 'Brak towaru w magazynie — nie można utworzyć WZ dla ZK ' . $orderRef . $detail,
                     'error' => 'INSUFFICIENT_STOCK',
                     'data' => [
                         'order_ref' => $orderRef,
-                        'shortages' => $wzResult['shortages'] ?? [],
+                        'shortages' => $shortages,
                     ],
                 ];
             }
 
             $docRef = isset($wzResult['doc_ref']) ? (string) $wzResult['doc_ref'] : '';
             if ($docRef === '') {
-                $docRef = (string) $this->getExistingIssueForOrder($orderRef);
+                $docRef = (string) $order->findValidIssueForOrder();
             }
             if ($docRef === '') {
                 throw new Exception('Brak numeru dokumentu WZ po zapisie');
             }
 
-            if ($fullRealization && empty($wzResult['fully_realized']) && empty($wzResult['fulfilled'])) {
-                $followUp = $order->fulfillRemainingToWz(true);
-                if (is_array($followUp)) {
-                    if (!empty($followUp['shortages'])) {
-                        return [
-                            'state' => 'fail',
-                            'message' => 'Brak towaru w magazynie — nie można domknąć realizacji ZK ' . $orderRef,
-                            'error' => 'INSUFFICIENT_STOCK',
-                            'data' => [
-                                'order_ref' => $orderRef,
-                                'doc_ref' => $docRef,
-                                'shortages' => $followUp['shortages'],
-                            ],
-                        ];
+            $shouldAppendServices = Order::isCopyServicesFromOrderRequested($this->documentDetail, true)
+                || Order::isAppendServicesRequested($this->documentDetail)
+                || !empty($this->documentDetail['services']);
+            if ($shouldAppendServices) {
+                $appendResult = $order->appendMissingServicesToIssue($docRef, $this->documentDetail);
+                if (!empty($appendResult['added'])) {
+                    $wzResult['services_appended'] = (int) $appendResult['added'];
+                    $wzResult['service_codes'] = $appendResult['service_codes'];
+                    if ($closeOrder) {
+                        $order->finalizeOrderAfterIssueSaved(array($docRef), true);
+                        $wzResult = $order->enrichIssueResultPayload($wzResult);
                     }
-                    $wzResult = array_merge($wzResult, $followUp);
                 }
             }
 
-            $wzResult['doc_ref'] = $docRef;
-            $wzResult['document_ref'] = $docRef;
-            $wzResult['issue_ref'] = $docRef;
-            $wzResult['order_ref'] = $orderRef;
-            $wzResult['doc_type'] = 11;
-            $wzResult['already_exists'] = false;
+            $wzResult = $order->enrichIssueResultPayload($wzResult);
+            $wzResult = $this->attachFsCleanupToIssuePayload($wzResult, $docRef);
+
+            if ($closeOrder) {
+                $fulfillmentRepair = Order::ensureOrderFulfilledAfterIssueSql($orderRef);
+                if (is_array($fulfillmentRepair) && ($fulfillmentRepair['state'] ?? '') === 'success') {
+                    $wzResult = $order->enrichIssueResultPayload($wzResult);
+                    $wzResult['fulfillment_repaired'] = true;
+                }
+                $wzResult['fulfillment_check'] = $fulfillmentRepair;
+            }
 
             Logger::getInstance()->log(
                 'api',
                 'createIssueFromOrder success: order_ref=' . $orderRef
                     . ', doc_ref=' . $docRef
-                    . ', fully_realized=' . (!empty($wzResult['fully_realized']) || !empty($wzResult['fulfilled']) ? 'tak' : 'nie'),
+                    . ', zk_closed=' . (!empty($wzResult['zk_closed']) ? 'tak' : 'nie'),
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
 
-            return [
-                'state' => 'success',
-                'message' => 'WZ created',
-                'data' => $wzResult,
-            ];
-        } catch (Exception $e) {
+            return $this->buildCreateIssueFromOrderResponse($orderRef, $wzResult, $fullRealization, $closeOrder, false);
+        } catch (\Throwable $e) {
             $message = $e->getMessage();
             Logger::getInstance()->log('api', 'createIssueFromOrder error: ' . $message, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+
+            if (stripos($message, 'nie jest powiązane z ZK') !== false
+                || stripos($message, 'konflikt numeru') !== false) {
+                return [
+                    'state' => 'fail',
+                    'message' => $message,
+                    'error' => 'WZ_ORDER_MISMATCH',
+                ];
+            }
 
             if (stripos($message, 'zrealizowan') !== false) {
                 return [
@@ -1407,6 +1610,91 @@ class Document extends SubiektObj
                 'details' => $message,
             ];
         }
+    }
+
+    /**
+     * Po wystawieniu FS (np. ręcznie w GT) usuwa linki ZK blokujące KFS.
+     * POST Document/finalizeSalesInvoiceForCorrection — data.invoice_ref lub data.issue_ref / data.doc_ref (WZ).
+     */
+    public function finalizeSalesInvoiceForCorrection()
+    {
+        $invoiceRef = isset($this->documentDetail['invoice_ref'])
+            ? trim((string) $this->documentDetail['invoice_ref'])
+            : '';
+        $issueRef = isset($this->documentDetail['issue_ref'])
+            ? trim((string) $this->documentDetail['issue_ref'])
+            : '';
+        $docRef = isset($this->documentDetail['doc_ref'])
+            ? trim((string) $this->documentDetail['doc_ref'])
+            : '';
+
+        if ($invoiceRef === '' && $issueRef !== '') {
+            $invoiceRef = Order::findSalesInvoiceRefForIssueSql($issueRef);
+        }
+        if ($invoiceRef === '' && $docRef !== '') {
+            $invoiceRef = Order::findSalesInvoiceRefForIssueSql($docRef);
+        }
+        if ($invoiceRef === '' && isset($this->documentDetail['fs_ref'])) {
+            $invoiceRef = trim((string) $this->documentDetail['fs_ref']);
+        }
+
+        if ($invoiceRef === '') {
+            return array(
+                'state' => 'error',
+                'message' => 'Podaj data.invoice_ref (FS) lub data.issue_ref / data.doc_ref (WZ z powiązaną FS).',
+                'error' => 'VALIDATION_ERROR',
+            );
+        }
+
+        $result = Order::cleanupSalesInvoiceLinksAfterFsSql(
+            $invoiceRef,
+            __CLASS__ . '->' . __FUNCTION__
+        );
+        $state = (string) ($result['state'] ?? '');
+
+        if ($state === 'success' || $state === 'noop') {
+            return array(
+                'state' => 'success',
+                'message' => (string) ($result['message'] ?? 'FS gotowa pod KFS.'),
+                'data' => $result,
+            );
+        }
+
+        return array(
+            'state' => 'error',
+            'message' => (string) ($result['message'] ?? 'Nie udało się przygotować FS pod KFS.'),
+            'error' => 'FS_CLEANUP_FAILED',
+            'data' => $result,
+        );
+    }
+
+    /**
+     * Gdy WZ ma już FS — automatycznie czyści linki ZK (prewencja błędów KFS).
+     *
+     * @param array $data
+     * @param string $issueRef
+     * @return array
+     */
+    protected function attachFsCleanupToIssuePayload(array $data, $issueRef)
+    {
+        $issueRef = trim((string) $issueRef);
+        if ($issueRef === '') {
+            return $data;
+        }
+
+        $cleanup = Order::maybeAutoCleanupSalesInvoiceForIssueSql($issueRef);
+        $cleanupState = (string) ($cleanup['state'] ?? '');
+
+        if ($cleanupState === 'success') {
+            $data['fs_links_cleaned'] = true;
+            if (!empty($cleanup['invoice_ref'])) {
+                $data['invoice_ref'] = (string) $cleanup['invoice_ref'];
+            }
+        } elseif ($cleanupState !== 'noop') {
+            $data['fs_links_cleanup'] = $cleanup;
+        }
+
+        return $data;
     }
 
     public function getGt()

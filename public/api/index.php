@@ -129,6 +129,10 @@ try {
         $obj = new $class($subiektGtCom, isset($json_request['data']) ? $json_request['data'] : []);
         $obj->setCfg($cfg);
         $json_response = $obj->createIssueFromOrder();
+    } elseif ($className == 'Document' && $method == 'finalizeSalesInvoiceForCorrection') {
+        $obj = new $class($subiektGtCom, isset($json_request['data']) ? $json_request['data'] : []);
+        $obj->setCfg($cfg);
+        $json_response = $obj->finalizeSalesInvoiceForCorrection();
     } elseif ($className == 'Product' && $method == 'getStocks') {
         $obj = new $class($subiektGtCom, $json_request['data']);
         $obj->setCfg($cfg);
@@ -157,6 +161,10 @@ try {
 
         $json_response['state'] = 'success';
         $json_response['data'] = $result;
+    } elseif ($className == 'Order' && $method == 'batchReconcileIssueCoverage') {
+        $obj = new $class($subiektGtCom, isset($json_request['data']) ? $json_request['data'] : []);
+        $obj->setCfg($cfg);
+        $json_response = $obj->batchReconcileIssueCoverage();
     } else {
         // Istniejąca logika dla innych metod
         if ($className == 'Order' && $method == 'update') {
