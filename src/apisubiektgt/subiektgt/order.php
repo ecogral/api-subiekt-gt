@@ -2266,6 +2266,30 @@ class Order extends SubiektObj
     }
 
     /**
+     * WZ już zapisane (powiązane lub osierocone) — nie twórz duplikatu przy order/fulfill.
+     *
+     * @return array<int, string>
+     */
+    protected function resolveIssueRefsBlockingDuplicateWzCreation()
+    {
+        $refs = $this->getValidIssueRefsForOrder();
+        $seen = array();
+        foreach ($refs as $ref) {
+            $seen[$ref] = true;
+        }
+
+        foreach ($this->findOrphanIssueRefsForOrder() as $ref) {
+            $ref = trim((string) $ref);
+            if ($ref !== '' && !isset($seen[$ref])) {
+                $seen[$ref] = true;
+                $refs[] = $ref;
+            }
+        }
+
+        return array_values($refs);
+    }
+
+    /**
      * WZ z poprawnymi ilościami, ale bez powiązań ob_DoId / nagłówka — typowy efekt NaPodstawie+Zapisz bez linków w SQL.
      *
      * @return array<int, string>
@@ -6921,7 +6945,7 @@ class Order extends SubiektObj
         }
 
         $remainingQty = self::sumRemainingToRealize($this->orderGt, false, (int) $this->gt_id, $this->order_ref);
-        $existingIssues = $this->getValidIssueRefsForOrder();
+        $existingIssues = $this->resolveIssueRefsBlockingDuplicateWzCreation();
 
         if (!empty($existingIssues) && !$createWzWhenNeeded) {
             if ($this->isBusinessComplete()) {
@@ -6966,10 +6990,16 @@ class Order extends SubiektObj
             }
             Logger::getInstance()->log(
                 'api',
-                'fulfillRemainingToWz: status otwarty (5/6) przy remaining_qty≈0 dla ' . $this->order_ref
-                    . ' — kontynuacja tworzenia WZ przez NaPodstawie',
+                'fulfillRemainingToWz: status otwarty (5/6) przy remaining_qty≈0 i istniejącym WZ '
+                    . implode(', ', $existingIssues) . ' dla ' . $this->order_ref
+                    . ' — pomijam tworzenie kolejnego WZ',
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
+            );
+            return $this->buildFulfillResultPayload(
+                false,
+                'ZK ma już WZ (' . implode(', ', $existingIssues) . '), ale GT nie domknął zamówienia.'
+                    . ' Użyj order/repairIssueLinks — nie twórz drugiego WZ.'
             );
         } elseif ($remainingQty <= 0.00001) {
             $this->finalizeOrderAfterIssueSaved(array(), true);
@@ -6985,6 +7015,40 @@ class Order extends SubiektObj
                     'ZK nie zostało domknięte w GT mimo braku pozostałości do wydania.'
                 );
             }
+            $orphanOnly = $this->findOrphanIssueRefsForOrder();
+            if (!empty($orphanOnly)) {
+                $orphanRepairLate = $this->repairOrphanIssuesForOrder($orphanOnly);
+                $this->reloadOrderFromGt();
+                if ($this->isBusinessComplete()) {
+                    return $this->buildFulfillResultPayload(
+                        true,
+                        'Naprawiono powiązania istniejącego WZ i domknięto ZK w GT.'
+                    );
+                }
+                if (!empty($orphanRepairLate['issue_refs'])) {
+                    $this->reconcileOrderCloseFromExistingIssues($orphanRepairLate['issue_refs']);
+                    $this->reloadOrderFromGt();
+                    if ($this->isBusinessComplete()) {
+                        return $this->buildFulfillResultPayload(
+                            true,
+                            'Naprawiono powiązania istniejącego WZ i domknięto ZK w GT.'
+                        );
+                    }
+                }
+                Logger::getInstance()->log(
+                    'api',
+                    'fulfillRemainingToWz: znaleziono osierocony WZ '
+                        . implode(', ', $orphanOnly) . ' dla ' . $this->order_ref
+                        . ' — pomijam tworzenie kolejnego WZ',
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                return $this->buildFulfillResultPayload(
+                    false,
+                    'ZK ma już WZ (' . implode(', ', $orphanOnly) . ') bez pełnego domknięcia.'
+                        . ' Użyj order/repairIssueLinks — nie twórz drugiego WZ.'
+                );
+            }
             Logger::getInstance()->log(
                 'api',
                 'fulfillRemainingToWz: status otwarty (5/6) przy remaining_qty≈0 dla '
@@ -6996,6 +7060,21 @@ class Order extends SubiektObj
 
         if (!$createWzWhenNeeded) {
             return $this->buildFulfillResultPayload(false, 'ZK ma pozostałości do realizacji, tworzenie WZ wyłączone.');
+        }
+
+        $blockingRefs = $this->resolveIssueRefsBlockingDuplicateWzCreation();
+        if ($remainingQty <= 0.00001 && !empty($blockingRefs)) {
+            Logger::getInstance()->log(
+                'api',
+                'fulfillRemainingToWz: blokada duplikatu WZ dla ' . $this->order_ref
+                    . ', istniejące: ' . implode(', ', $blockingRefs),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+            return $this->buildFulfillResultPayload(
+                false,
+                'ZK ma już WZ (' . implode(', ', $blockingRefs) . '). Nie utworzono kolejnego dokumentu.'
+            );
         }
 
         $this->ensureOrderReservationBeforeIssue();
