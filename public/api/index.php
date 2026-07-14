@@ -3,7 +3,9 @@
 use APISubiektGT\Config;
 use APISubiektGT\Helper;
 use APISubiektGT\Logger;
+use APISubiektGT\MSSql;
 use APISubiektGT\SubiektGT;
+use APISubiektGT\SubiektGT\OrderComWriter;
 
 require_once(dirname(__FILE__) . '/../init.php');
 $json_response = array();
@@ -59,6 +61,11 @@ try {
     //Config load
     $cfg = new Config(CONFIG_INI_FILE);
     $cfg->load();
+
+    $comWritesOnly = !isset($cfg->use_com_writes_only) || (string) $cfg->use_com_writes_only !== '0';
+    $allowSqlFallback = isset($cfg->allow_sql_write_fallback) && (string) $cfg->allow_sql_write_fallback === '1';
+    OrderComWriter::configure($comWritesOnly, $allowSqlFallback);
+    MSSql::setComWritesOnly($comWritesOnly, $allowSqlFallback);
 
 
     if (!$cfg->verifyAPIKey($json_request['api_key'])) {
@@ -165,6 +172,10 @@ try {
         $obj = new $class($subiektGtCom, isset($json_request['data']) ? $json_request['data'] : []);
         $obj->setCfg($cfg);
         $json_response = $obj->batchReconcileIssueCoverage();
+    } elseif ($className == 'Order' && $method == 'repairIssueLinks') {
+        $obj = new $class($subiektGtCom, isset($json_request['data']) ? $json_request['data'] : []);
+        $obj->setCfg($cfg);
+        $json_response = $obj->repairIssueLinks();
     } else {
         // Istniejąca logika dla innych metod
         if ($className == 'Order' && $method == 'update') {

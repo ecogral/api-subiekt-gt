@@ -1439,10 +1439,34 @@ class Document extends SubiektObj
             }
 
             $existingIssueRef = $order->findValidIssueForOrder();
+            if ($existingIssueRef === null || $existingIssueRef === '') {
+                $orphanRefs = $order->findOrphanIssueRefsForOrder();
+                if (!empty($orphanRefs)) {
+                    $existingIssueRef = (string) $orphanRefs[0];
+                    Logger::getInstance()->log(
+                        'api',
+                        'createIssueFromOrder: znaleziono osierocony WZ '
+                            . $existingIssueRef . ' dla ' . $orderRef . ' — naprawa powiązań',
+                        __CLASS__ . '->' . __FUNCTION__,
+                        __LINE__
+                    );
+                    Order::repairWzToOrderPositionLinksSql(
+                        $orderId,
+                        array($existingIssueRef),
+                        $orderRef,
+                        true,
+                        true,
+                        true,
+                        true,
+                        true
+                    );
+                }
+            }
+
             if ($existingIssueRef !== null && $existingIssueRef !== '') {
                 $fulfillment = null;
                 if ($closeOrder) {
-                    $fulfillment = $order->fulfillRemainingToWz(false);
+                    $fulfillment = $order->reconcileOrderCloseFromExistingIssues(array($existingIssueRef));
                 }
 
                 $data = array(
@@ -1451,10 +1475,11 @@ class Document extends SubiektObj
                     'issue_ref' => $existingIssueRef,
                 );
                 if (is_array($fulfillment)) {
-                    $data = array_merge($data, $fulfillment);
+                    $data['closure'] = $fulfillment;
+                    $data['fulfilled'] = !empty($fulfillment['gt_closed']) || $order->isBusinessComplete();
+                    $data['fully_realized'] = $data['fulfilled'];
                 }
                 if ($closeOrder) {
-                    $order->finalizeOrderAfterIssueSaved(array($existingIssueRef), true);
                     $data = $order->enrichIssueResultPayload($data);
                 } else {
                     $order->finalizeOrderAfterIssueSaved(array($existingIssueRef), false);
@@ -1480,15 +1505,6 @@ class Document extends SubiektObj
                 }
 
                 $data = $this->attachFsCleanupToIssuePayload($data, $existingIssueRef);
-
-                if ($closeOrder) {
-                    $fulfillmentRepair = Order::ensureOrderFulfilledAfterIssueSql($orderRef);
-                    if (is_array($fulfillmentRepair) && ($fulfillmentRepair['state'] ?? '') === 'success') {
-                        $data = $order->enrichIssueResultPayload($data);
-                        $data['fulfillment_repaired'] = true;
-                    }
-                    $data['fulfillment_check'] = $fulfillmentRepair;
-                }
 
                 Logger::getInstance()->log(
                     'api',
@@ -1562,15 +1578,6 @@ class Document extends SubiektObj
 
             $wzResult = $order->enrichIssueResultPayload($wzResult);
             $wzResult = $this->attachFsCleanupToIssuePayload($wzResult, $docRef);
-
-            if ($closeOrder) {
-                $fulfillmentRepair = Order::ensureOrderFulfilledAfterIssueSql($orderRef);
-                if (is_array($fulfillmentRepair) && ($fulfillmentRepair['state'] ?? '') === 'success') {
-                    $wzResult = $order->enrichIssueResultPayload($wzResult);
-                    $wzResult['fulfillment_repaired'] = true;
-                }
-                $wzResult['fulfillment_check'] = $fulfillmentRepair;
-            }
 
             Logger::getInstance()->log(
                 'api',

@@ -60,6 +60,16 @@ class SubiektGT
 	}
 
 	/**
+	 * Aktywne połączenie COM Subiekta GT (po connect()).
+	 *
+	 * @return mixed|false
+	 */
+	public function getCom()
+	{
+		return $this->subiektGt ? $this->subiektGt : false;
+	}
+
+	/**
 	 *	Return config object
 	 */
 	public function getConfig()
