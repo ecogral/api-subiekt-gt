@@ -21,6 +21,28 @@ class MSSql{
 	{
 		return self::$comWritesOnly;
 	}
+
+	/**
+	 * Jednorazowe wykonanie zapisu SQL (gdy COM nie utrwalił pól w bazie).
+	 *
+	 * @param callable $callback
+	 * @return mixed
+	 */
+	static public function withSqlWriteFallback(callable $callback)
+	{
+		$comOnly = self::$comWritesOnly;
+		$prevFallback = self::$allowSqlWriteFallback;
+		$prevComFallback = \APISubiektGT\SubiektGT\OrderComWriter::allowSqlWriteFallback();
+		self::$allowSqlWriteFallback = true;
+		\APISubiektGT\SubiektGT\OrderComWriter::configure($comOnly, true);
+		try {
+			return $callback();
+		} finally {
+			self::$allowSqlWriteFallback = $prevFallback;
+			self::$comWritesOnly = $comOnly;
+			\APISubiektGT\SubiektGT\OrderComWriter::configure($comOnly, $prevComFallback);
+		}
+	}
 	
 	
 	private function __construct($conf = array(),$data_base){ 

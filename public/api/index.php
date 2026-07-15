@@ -5,6 +5,7 @@ use APISubiektGT\Helper;
 use APISubiektGT\Logger;
 use APISubiektGT\MSSql;
 use APISubiektGT\SubiektGT;
+use APISubiektGT\SubiektGT\Order;
 use APISubiektGT\SubiektGT\OrderComWriter;
 
 require_once(dirname(__FILE__) . '/../init.php');
@@ -176,6 +177,25 @@ try {
         $obj = new $class($subiektGtCom, isset($json_request['data']) ? $json_request['data'] : []);
         $obj->setCfg($cfg);
         $json_response = $obj->repairIssueLinks();
+    } elseif ($className == 'Order' && $method == 'prepareIssueForRemoval') {
+        $data = isset($json_request['data']) ? $json_request['data'] : array();
+        $orderRef = trim((string) ($data['order_ref'] ?? ''));
+        $issueRefs = array();
+        foreach (array('issue_ref', 'doc_ref', 'document_ref') as $key) {
+            $ref = trim((string) ($data[$key] ?? ''));
+            if ($ref !== '') {
+                $issueRefs[] = $ref;
+            }
+        }
+        if (!empty($data['issue_refs']) && is_array($data['issue_refs'])) {
+            foreach ($data['issue_refs'] as $ref) {
+                $ref = trim((string) $ref);
+                if ($ref !== '') {
+                    $issueRefs[] = $ref;
+                }
+            }
+        }
+        $json_response = Order::prepareIssueForRemovalSql($orderRef, array_values(array_unique($issueRefs)));
     } else {
         // Istniejąca logika dla innych metod
         if ($className == 'Order' && $method == 'update') {

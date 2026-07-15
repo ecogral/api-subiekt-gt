@@ -1455,10 +1455,11 @@ class Document extends SubiektObj
                         array($existingIssueRef),
                         $orderRef,
                         true,
+                        false,
                         true,
                         true,
                         true,
-                        true
+                        $this->subiektGt
                     );
                 }
             }
@@ -1482,6 +1483,7 @@ class Document extends SubiektObj
                 if ($closeOrder) {
                     $data = $order->enrichIssueResultPayload($data);
                 } else {
+                    $order->ensureOrderIssueDocumentLinksCom(array($existingIssueRef));
                     $order->finalizeOrderAfterIssueSaved(array($existingIssueRef), false);
                     $data = $order->enrichIssueResultPayload($data);
                 }

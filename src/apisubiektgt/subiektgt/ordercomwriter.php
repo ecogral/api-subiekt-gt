@@ -583,16 +583,44 @@ class OrderComWriter
         }
 
         $orderDoc = $loaded['doc'];
+        $orderRef = trim((string) ($orderRef !== null ? $orderRef : $loaded['ref']));
+        $issueId = (int) self::tryGetProperty($issueDoc, array('Identyfikator', 'Id'), 0);
         $linked = false;
 
+        self::trySetProperty(
+            $issueDoc,
+            array('NumerPelnyOryginalny', 'NrPelnyOryg', 'NumerOryginalny'),
+            $orderRef
+        );
+        if (self::trySetProperty(
+            $issueDoc,
+            array('DokumentZrodlowy', 'DokumentZrodla', 'NaPodstawieDokumentu'),
+            $orderDoc
+        ) !== false
+            || self::trySetProperty(
+                $issueDoc,
+                array('DokumentZrodlowy', 'DokumentZrodla', 'NaPodstawieDokumentu'),
+                $orderRef
+            ) !== false) {
+            self::saveDocument($issueDoc, 'linkOrderHeaderToIssue:wz-source');
+        }
+
         foreach (array(
-            array('DokumentDocelowy', 'DokumentDo', 'RealizacjaDokumentu', 'DokumentRealizacji', 'PowiazanyDokument'),
-            array('DoDokumentu'),
-        ) as $props) {
-            if (self::trySetProperty($orderDoc, $props, $issueDoc) !== false
-                || self::trySetProperty($orderDoc, $props, $issueRef) !== false) {
+            array(array('DokumentDocelowy', 'DokumentDo', 'RealizacjaDokumentu', 'DokumentRealizacji', 'PowiazanyDokument'), $issueDoc),
+            array(array('DokumentDocelowy', 'DokumentDo', 'RealizacjaDokumentu', 'DokumentRealizacji', 'PowiazanyDokument'), $issueRef),
+            array(array('DoDokumentu', 'DoDokumentuNumer', 'DokumentDocelowyNumer'), $issueRef),
+        ) as $attempt) {
+            if (self::trySetProperty($orderDoc, $attempt[0], $attempt[1]) !== false) {
                 $linked = true;
                 break;
+            }
+        }
+
+        if ($issueId > 0) {
+            foreach (array('DoDokumentuId', 'DokumentDocelowyId', 'IdDokumentuDocelowego', 'DoDokId') as $prop) {
+                if (self::trySetProperty($orderDoc, array($prop), $issueId) !== false) {
+                    $linked = true;
+                }
             }
         }
 
@@ -606,7 +634,7 @@ class OrderComWriter
             }
         }
 
-        if ($linked) {
+        if ($linked || $issueId > 0) {
             self::saveDocument($orderDoc, 'linkOrderHeaderToIssue:' . $loaded['ref']);
         }
 
@@ -1079,6 +1107,25 @@ class OrderComWriter
 
         $pricesSynced = self::syncIssuePricesFromOrder($subiektGt, $orderId, $issueRefs, $orderRef);
 
+        Order::clearWzDoDokIdPointingToOrderSql($orderId, $issueRefs);
+        foreach ($issueRefs as $issueRef) {
+            $issueRef = trim((string) $issueRef);
+            if ($issueRef === '') {
+                continue;
+            }
+            $issueDoc = self::loadDocument($subiektGt, $issueRef);
+            if (!$issueDoc) {
+                continue;
+            }
+            if (self::trySetProperty(
+                $issueDoc,
+                array('DoDokumentu', 'DokumentDocelowy', 'DokumentDo'),
+                null
+            ) !== false) {
+                self::saveDocument($issueDoc, 'clearWzDoDokIdPointingToOrder:' . $issueRef);
+            }
+        }
+
         return self::readWzLinkRepairStats($orderId, $issueRefs, $orderRef, $pricesSynced);
     }
 
@@ -1208,6 +1255,11 @@ class OrderComWriter
             self::trySetProperty(
                 $issueDoc,
                 array('DokumentZrodlowy', 'DokumentZrodla', 'NaPodstawieDokumentu'),
+                null
+            );
+            self::trySetProperty(
+                $issueDoc,
+                array('DoDokumentu', 'DokumentDocelowy', 'DokumentDo'),
                 null
             );
 
@@ -1576,15 +1628,30 @@ class OrderComWriter
                 continue;
             }
 
+            $wzId = (int) ($wzRow['dok_Id'] ?? 0);
+            $safeIssueRef = str_replace("'", "''", $issueRef);
             $issueDoc = self::loadDocument($subiektGt, $issueRef);
             if ($issueDoc) {
                 self::trySetProperty(
                     $issueDoc,
-                    array('DokumentZrodlowy', 'DokumentZrodla', 'NaPodstawieDokumentu'),
+                    array('DoDokumentu', 'DokumentDocelowy', 'DokumentDo'),
                     null
                 );
                 self::saveDocument($issueDoc, 'prepareIssueForInvoicing:wz');
             }
+
+            MSSql::withSqlWriteFallback(function () use ($orderId, $issueRef, $wzId, $safeIssueRef) {
+                Order::clearWzDoDokIdPointingToOrderSql($orderId, array($issueRef));
+                MSSql::getInstance()->query(
+                    "UPDATE dok__Dokument
+                     SET dok_DoDokId = NULL,
+                         dok_DoDokNrPelny = '',
+                         dok_DoDokDataWyst = NULL
+                     WHERE dok_Id = {$orderId} AND dok_Typ = 16
+                       AND (dok_DoDokId = {$wzId}
+                            OR LTRIM(RTRIM(ISNULL(dok_DoDokNrPelny, ''))) = '{$safeIssueRef}')"
+                );
+            });
 
             $results[] = array(
                 'issue_ref' => $issueRef,
