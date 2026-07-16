@@ -1426,6 +1426,9 @@ class Document extends SubiektObj
                             __CLASS__ . '->' . __FUNCTION__,
                             __LINE__
                         );
+                        if ($needsComSync) {
+                            $order->rebuildComReservationForIssue();
+                        }
                     }
                 } else {
                     Logger::getInstance()->log(
@@ -1434,6 +1437,30 @@ class Document extends SubiektObj
                             . $orderRef,
                         __CLASS__ . '->' . __FUNCTION__,
                         __LINE__
+                    );
+                }
+
+                $orderSnapshot = $order->get();
+                $sqlReservedAfter = Order::orderHasActiveReservationSql($orderId, $orderRef);
+                $comReservedAfter = (bool) ($orderSnapshot['reservation'] ?? false);
+                if ($sqlReservedAfter && !$comReservedAfter) {
+                    $order->rebuildComReservationForIssue();
+                    $orderSnapshot = $order->get();
+                    $comReservedAfter = (bool) ($orderSnapshot['reservation'] ?? false);
+                }
+                if ($sqlReservedAfter && !$comReservedAfter) {
+                    return array(
+                        'state' => 'fail',
+                        'message' => 'ZK ' . $orderRef
+                            . ' ma rezerwację w bazie (status 5), ale Subiekt GT nie ma włączonej rezerwacji COM.'
+                            . ' Zamknij dokument ZK w GT (odblokuj) i spróbuj ponownie.',
+                        'error' => 'RESERVATION_COM_SYNC_FAILED',
+                        'data' => array(
+                            'order_ref' => $orderRef,
+                            'sql_reserved' => true,
+                            'com_reserved' => false,
+                            'state' => (int) ($orderSnapshot['state'] ?? 0),
+                        ),
                     );
                 }
             }

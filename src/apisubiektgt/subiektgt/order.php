@@ -359,6 +359,9 @@ class Order extends SubiektObj
         $this->order_ref = $o['dok_NrPelny'] ?? '';
         $this->reservation = (bool) ($this->orderGt->Rezerwacja ?? false);
         $this->state = $o['dok_Status'] ?? 0;
+        if ((int) $this->state === 5) {
+            $this->reservation = true;
+        }
         $this->status_ex = (int) ($o['dok_StatusEx'] ?? 0);
         $this->fully_realized = $this->isZkFulfilledForApi();
         if ($this->fully_realized) {
@@ -931,14 +934,19 @@ class Order extends SubiektObj
                 continue;
             }
             $code = trim((string) ($row['sku'] ?? $row['code'] ?? ''));
-            if ($code === '' || !isset($sqlByCode[$code])) {
+            if ($code === '') {
+                $filtered[] = $row;
+                continue;
+            }
+            if (isset($sqlByCode[$code])) {
                 $filtered[] = $row;
                 continue;
             }
             Logger::getInstance()->log(
                 'api',
                 'filterComShortagesAgainstSql: pominięto fałszywy brak COM dla '
-                    . $code . ' (COM available=' . ($row['available'] ?? '?') . ')',
+                    . $code . ' (COM available=' . ($row['available'] ?? '?')
+                    . ', SQL: stan wystarczający przy rezerwacji ZK)',
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
@@ -3788,10 +3796,44 @@ class Order extends SubiektObj
         }
 
         if (OrderComWriter::comWritesOnly()) {
-            return OrderComWriter::resetOrderPositionIssuedQtyWithoutIssue(
-                OrderComWriter::resolveSubiektGt(),
-                $orderId
-            );
+            $comReset = 0;
+            try {
+                $subiektGt = OrderComWriter::resolveSubiektGt();
+                if ($subiektGt) {
+                    $comReset = (int) OrderComWriter::resetOrderPositionIssuedQtyWithoutIssue(
+                        $subiektGt,
+                        $orderId
+                    );
+                }
+            } catch (\Throwable $e) {
+                Logger::getInstance()->log(
+                    'api',
+                    'resetOrderPositionIssuedQtyWithoutIssueSql: COM pominięte — '
+                        . $e->getMessage(),
+                    __CLASS__ . '::resetOrderPositionIssuedQtyWithoutIssueSql',
+                    __LINE__
+                );
+            }
+            $sqlReset = MSSql::withSqlWriteFallback(function () use ($orderId) {
+                return self::resetOrderPositionIssuedQtyWithoutIssueSqlDirect($orderId);
+            });
+            return max($comReset, (int) ($sqlReset ?? 0));
+        }
+
+        return self::resetOrderPositionIssuedQtyWithoutIssueSqlDirect($orderId);
+    }
+
+    /**
+     * SQL: zeruje ob_IloscMag na pozycjach ZK bez powiązania WZ (ob_DoId).
+     *
+     * @param int $orderId
+     * @return int
+     */
+    public static function resetOrderPositionIssuedQtyWithoutIssueSqlDirect($orderId)
+    {
+        $orderId = (int) $orderId;
+        if ($orderId <= 0) {
+            return 0;
         }
 
         $countRows = MSSql::getInstance()->query(
@@ -4056,14 +4098,25 @@ class Order extends SubiektObj
             $comReserved = (bool) ($this->orderGt->Rezerwacja ?? false);
         }
 
-        if (!$forceResync && $comReserved === $enable && !$enable) {
-            return array(
-                'synced' => true,
-                'skipped' => 'already_synced',
-                'reservation' => $comReserved,
-                'state' => $state,
-                'message' => 'COM już zsynchronizowane z SQL.',
-            );
+        if (!$forceResync && $comReserved === $enable) {
+            if (!$enable) {
+                return array(
+                    'synced' => true,
+                    'skipped' => 'already_synced',
+                    'reservation' => $comReserved,
+                    'state' => $state,
+                    'message' => 'COM już zsynchronizowane z SQL.',
+                );
+            }
+            if ((int) $state === 5 && (int) $sqlState === 5) {
+                return array(
+                    'synced' => true,
+                    'skipped' => 'already_synced',
+                    'reservation' => $comReserved,
+                    'state' => $state,
+                    'message' => 'COM już ma rezerwację (status 5) — pomijam ponowny Zapisz().',
+                );
+            }
         }
 
         if (!self::isOrderStatusOpen($state)) {
@@ -7283,31 +7336,55 @@ class Order extends SubiektObj
 
         $this->ensureOrderReservationBeforeIssue();
 
-        $issueDoc = $this->subiektGt->SuDokumentyManager->DodajWZ();
-        $issueDoc->NaPodstawie((int) $this->gt_id);
-
-        if ($fullRealization) {
-            $this->applyRemainingQuantitiesToIssueDoc($this->orderGt, $issueDoc);
-        }
-
-        if ((int) $issueDoc->Pozycje->Liczba() <= 0) {
-            $this->cancelDraftIssueDocument($issueDoc);
-            throw new Exception('Brak pozycji do wydania na WZ dla zamówienia: ' . $this->order_ref);
-        }
-
-        if ($reference !== '') {
-            $issueDoc->Uwagi = Helper::toWin($reference);
-        }
-
         $serviceLines = self::resolveIssueServicesInput($issueOptions, (int) $this->gt_id);
+        $issueDoc = null;
 
-        $issueDoc->Wystawil = Helper::toWin($this->cfg->getIdPerson());
-        $shortages = $this->saveIssueDocWithStockCheck($issueDoc);
-        if ($shortages !== null) {
-            return array(
-                'stock_failed' => true,
-                'shortages' => $shortages,
-            );
+        for ($attempt = 1; $attempt <= 2; $attempt++) {
+            $issueDoc = $this->subiektGt->SuDokumentyManager->DodajWZ();
+            $issueDoc->NaPodstawie((int) $this->gt_id);
+
+            if ($fullRealization) {
+                $this->applyRemainingQuantitiesToIssueDoc($this->orderGt, $issueDoc);
+            }
+
+            if ((int) $issueDoc->Pozycje->Liczba() <= 0) {
+                $this->cancelDraftIssueDocument($issueDoc);
+                throw new Exception('Brak pozycji do wydania na WZ dla zamówienia: ' . $this->order_ref);
+            }
+
+            if ($reference !== '') {
+                $issueDoc->Uwagi = Helper::toWin($reference);
+            }
+
+            $issueDoc->Wystawil = Helper::toWin($this->cfg->getIdPerson());
+
+            try {
+                $shortages = $this->saveIssueDocWithStockCheck($issueDoc);
+                if ($shortages !== null) {
+                    return array(
+                        'stock_failed' => true,
+                        'shortages' => $shortages,
+                    );
+                }
+                break;
+            } catch (\Throwable $e) {
+                if ($attempt >= 2 || !$this->shouldRetryWzAfterComStockError($e)) {
+                    throw $e;
+                }
+                Logger::getInstance()->log(
+                    'api',
+                    'createWzFromOrder: ponawiam WZ po błędzie COM stanów dla '
+                        . $this->order_ref . ': ' . $e->getMessage(),
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                $this->rebuildComReservationForIssue();
+                $this->ensureOrderReservationBeforeIssue();
+            }
+        }
+
+        if (!$issueDoc) {
+            throw new Exception('Nie udało się utworzyć dokumentu WZ dla zamówienia: ' . $this->order_ref);
         }
 
         $servicesAdded = 0;
@@ -7709,6 +7786,12 @@ class Order extends SubiektObj
         }
 
         $sync = $this->syncOrderReservationInCom(true);
+        $warehouseId = $this->cfg ? (int) $this->cfg->getWarehouse() : 1;
+        if ($orderId > 0
+            && empty(self::getOrderWarehouseStockShortagesSql($orderId, $warehouseId, $state))) {
+            $this->rebuildComReservationForIssue();
+        }
+
         if ($sync['synced'] ?? false) {
             return true;
         }
@@ -7722,6 +7805,85 @@ class Order extends SubiektObj
         );
 
         return false;
+    }
+
+    /**
+     * Przebudowa rezerwacji COM na liniach ZK (wyłącz → włącz), gdy SQL ma stan OK
+     * a COM ma zawyżone rezerwacje pozycji (np. po wielokrotnych Zapisz()).
+     *
+     * @return bool
+     */
+    public function rebuildComReservationForIssue()
+    {
+        if (!$this->orderGt || (int) $this->gt_id <= 0) {
+            return false;
+        }
+        if (!$this->orderHadReservationForClose((int) $this->state)) {
+            return false;
+        }
+
+        try {
+            $this->reloadOrderFromGt();
+            $this->orderGt->Rezerwacja = false;
+            $this->orderGt->Przelicz();
+            $this->orderGt->Zapisz();
+            $this->reloadOrderFromGt();
+            $this->orderGt->Rezerwacja = true;
+            OrderComWriter::trySetProperty(
+                $this->orderGt,
+                array('Status', 'StatusDokumentu', 'StanDokumentu'),
+                5
+            );
+            $this->orderGt->Przelicz();
+            $this->orderGt->Zapisz();
+            $this->reloadOrderFromGt();
+
+            $warehouseId = $this->cfg ? (int) $this->cfg->getWarehouse() : 1;
+            self::syncStockReservationsForOrderProductsSql((int) $this->gt_id, $warehouseId);
+
+            Logger::getInstance()->log(
+                'api',
+                'rebuildComReservationLinesForIssue: przebudowano rezerwację COM dla '
+                    . $this->order_ref,
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+
+            return true;
+        } catch (\Throwable $e) {
+            Logger::getInstance()->log(
+                'api',
+                'rebuildComReservationLinesForIssue: ' . $this->order_ref . ': ' . $e->getMessage(),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+
+            return false;
+        }
+    }
+
+    /**
+     * Czy ponowić WZ po błędzie COM „brak towaru”, gdy SQL potwierdza wystarczający stan.
+     *
+     * @param \Throwable $e
+     * @return bool
+     */
+    protected function shouldRetryWzAfterComStockError(\Throwable $e)
+    {
+        $message = $e->getMessage();
+        if (stripos($message, 'Brak towaru') === false
+            && stripos($message, 'magazyn') === false
+            && stripos($message, 'stock') === false) {
+            return false;
+        }
+
+        $warehouseId = $this->cfg ? (int) $this->cfg->getWarehouse() : 1;
+
+        return empty(self::getOrderWarehouseStockShortagesSql(
+            (int) $this->gt_id,
+            $warehouseId,
+            (int) $this->state
+        ));
     }
 
     /**

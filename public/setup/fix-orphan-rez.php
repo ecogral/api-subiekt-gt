@@ -54,14 +54,14 @@ print_r($sqlResult);
 $apiKey = $cfg->getApiKey();
 $apiBase = getenv('API_TEST_BASE') ?: 'http://127.0.0.1:82/api-subiekt-gt/public/api/index.php';
 
-// COM: zwolnij rezerwację na zamkniętych ZK (status 7) z towarem — duchy w Informatorze
+// COM: zwolnij rezerwację na zamkniętych ZK (status 6/7/8) z towarem — duchy w Informatorze
 $ghostRows = MSSql::getInstance()->query(
     "SELECT DISTINCT zk.dok_NrPelny AS order_ref, zk.dok_Status
      FROM dok__Dokument zk
      INNER JOIN dok_Pozycja p ON p.ob_DokHanId = zk.dok_Id
      INNER JOIN tw__Towar t ON t.tw_Id = p.ob_TowId
      WHERE zk.dok_Typ = 16
-       AND zk.dok_Status IN (6, 7)
+       AND zk.dok_Status IN (6, 7, 8)
        AND t.tw_Symbol IN ('" . implode("','", array_map(function ($s) {
            return str_replace("'", "''", $s);
        }, $symbols)) . "')
@@ -103,7 +103,7 @@ if (is_array($ghostRows)) {
     }
 }
 
-echo "\n=== COM: zwolnienie rezerwacji na ZK 6/7 bez pozostałości (max {$limit}) ===\n";
+echo "\n=== COM: zwolnienie rezerwacji na ZK 6/7/8 bez pozostałości (max {$limit}) ===\n";
 echo json_encode($comResults, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL;
 
 echo "\n=== PO ===\n";
