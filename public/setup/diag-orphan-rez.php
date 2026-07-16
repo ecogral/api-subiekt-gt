@@ -1,6 +1,7 @@
 <?php
 /**
- * Diagnostyka osieroconych rezerwacji magazynowych (st_StanRez vs oczekiwane z ZK status 5).
+ * Diagnostyka osieroconych rezerwacji magazynowych
+ * (st_StanRez vs ZK status 5 + stuck ZK 7 bez WZ).
  * php public/setup/diag-orphan-rez.php MF0162 KN00020
  */
 require_once dirname(__FILE__) . '/../init.php';
@@ -46,7 +47,7 @@ foreach ($mismatches as $m) {
     );
 }
 
-echo "\n=== Otwarte ZK status 5 (jedyne liczone jako oczekiwane rezerwacje) ===\n";
+echo "\n=== Otwarte ZK status 5 (część expected_rez) ===\n";
 $open5 = $db->query(
     "SELECT d.dok_NrPelny, d.dok_Status, d.dok_StatusEx, d.dok_ZrealizowaneZRezerwacja,
             t.tw_Symbol, SUM(p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0)) AS pozostalo
@@ -143,6 +144,7 @@ foreach ($wzMoves as $r) {
 }
 
 echo "\n=== Interpretacja ===\n";
-echo "expected_rez liczy TYLKO ZK ze statusem 5 (otwarte z rezerwacją).\n";
+echo "expected_rez = ZK status 5 (pozostalo) + stuck ZK status 7 bez WZ (ob_Ilosc).\n";
 echo "orphan = st_StanRez w magazynie minus to oczekiwanie.\n";
-echo "Typowe przyczyny orphan>0: ZK domknięte 6/7/8 bez zwolnienia st_StanRez, lub ręczna rezerwacja w GT.\n";
+echo "Typowe przyczyny orphan>0: ZK domknięte 8 z WZ bez zwolnienia st_StanRez, lub ręczna rezerwacja w GT.\n";
+echo "SB00EP11-style (status 7 bez WZ) NIE powinno wychodzić jako orphan.\n";

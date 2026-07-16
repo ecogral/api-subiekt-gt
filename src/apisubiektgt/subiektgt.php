@@ -21,9 +21,19 @@ class SubiektGT
 	}
 
 
+	static public function hasInstance()
+	{
+		return self::$_instance !== null;
+	}
+
 	static public function getInstance(Config $cfg = null)
 	{
 		if (!self::$_instance) {
+			if ($cfg === null) {
+				throw new \InvalidArgumentException(
+					'SubiektGT::getInstance(): Config required when creating first instance'
+				);
+			}
 			self::$_instance = new SubiektGT($cfg);
 		}
 		return self::$_instance;

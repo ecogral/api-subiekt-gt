@@ -359,7 +359,8 @@ class Order extends SubiektObj
         $this->order_ref = $o['dok_NrPelny'] ?? '';
         $this->reservation = (bool) ($this->orderGt->Rezerwacja ?? false);
         $this->state = $o['dok_Status'] ?? 0;
-        if ((int) $this->state === 5) {
+        // W tym GT status 7 (+ legacy 5) z rezerwacją — flaga API zgodna z modelem GT.
+        if (in_array((int) $this->state, array(5, 7), true)) {
             $this->reservation = true;
         }
         $this->status_ex = (int) ($o['dok_StatusEx'] ?? 0);
@@ -2503,7 +2504,296 @@ class Order extends SubiektObj
     }
 
     /**
-     * Oczekiwana rezerwacja magazynowa z otwartych ZK (status 5, pozostałość towaru).
+     * Filtr SQL: ZK status 7 bez powiązanego WZ = otwarte z rezerwacją (jak ręczne ZK w GT).
+     *
+     * @param string $docAlias alias dok__Dokument (ZK)
+     * @return string
+     */
+    protected static function sqlOrderReservedOpenWithoutIssuePredicate($docAlias = 'd')
+    {
+        $a = preg_replace('/[^a-zA-Z0-9_]/', '', (string) $docAlias);
+        if ($a === '') {
+            $a = 'd';
+        }
+
+        return "{$a}.dok_Status = 7
+           AND {$a}.dok_Status >= 0
+           AND (
+                {$a}.dok_DoDokNrPelny IS NULL
+                OR LTRIM(RTRIM(CAST({$a}.dok_DoDokNrPelny AS NVARCHAR(100)))) = ''
+                OR {$a}.dok_DoDokNrPelny NOT LIKE 'WZ %'
+           )
+           AND NOT EXISTS (
+                SELECT 1
+                FROM dok__Dokument wz
+                WHERE wz.dok_Typ = 11
+                  AND wz.dok_Status >= 0
+                  AND (
+                      wz.dok_DoDokId = {$a}.dok_Id
+                      OR wz.dok_NrPelnyOryg = {$a}.dok_NrPelny
+                      OR (
+                          ISNULL({$a}.dok_DoDokNrPelny, '') <> ''
+                          AND wz.dok_NrPelny = {$a}.dok_DoDokNrPelny
+                      )
+                  )
+           )";
+    }
+
+    /**
+     * @deprecated Użyj sqlOrderReservedOpenWithoutIssuePredicate — status 7 bez WZ to normalna rezerwacja.
+     * @param string $docAlias
+     * @return string
+     */
+    protected static function sqlOrderStuckWithoutIssuePredicate($docAlias = 'd')
+    {
+        return self::sqlOrderReservedOpenWithoutIssuePredicate($docAlias);
+    }
+
+    /**
+     * Podzapytanie: oczekiwana rezerwacja magazynowa per towar/magazyn.
+     * W tym GT otwarte z rezerwacją = status 7 bez WZ (ob_Ilosc; IloscMag bywa pełne).
+     * Status 5 bez WZ = legacy po błędnych naprawach API.
+     *
+     * @param int $warehouseId
+     * @return string SQL bez aliasu zewnętrznego (kolumny: product_id, warehouse_id, expected_rez)
+     */
+    protected static function sqlExpectedStockReservationSubquery($warehouseId = 1)
+    {
+        $warehouseId = (int) $warehouseId;
+        if ($warehouseId <= 0) {
+            $warehouseId = 1;
+        }
+
+        $goodsFilter = self::sqlWarehouseGoodsPositionsOnly('p');
+        $reservedOpen7 = self::sqlOrderReservedOpenWithoutIssuePredicate('d');
+
+        return "SELECT x.product_id,
+                       x.warehouse_id,
+                       SUM(x.qty) AS expected_rez
+                FROM (
+                    SELECT p.ob_TowId AS product_id,
+                           ISNULL(NULLIF(p.ob_MagId, 0), {$warehouseId}) AS warehouse_id,
+                           p.ob_Ilosc AS qty
+                    FROM dok_Pozycja p
+                    INNER JOIN dok__Dokument d ON d.dok_Id = p.ob_DokHanId
+                        AND d.dok_Typ = 16
+                        AND d.dok_Status >= 0
+                    WHERE {$reservedOpen7}
+                      AND p.ob_Ilosc > 0.00001
+                      {$goodsFilter}
+
+                    UNION ALL
+
+                    SELECT p.ob_TowId AS product_id,
+                           ISNULL(NULLIF(p.ob_MagId, 0), {$warehouseId}) AS warehouse_id,
+                           p.ob_Ilosc AS qty
+                    FROM dok_Pozycja p
+                    INNER JOIN dok__Dokument d ON d.dok_Id = p.ob_DokHanId
+                        AND d.dok_Typ = 16
+                        AND d.dok_Status >= 0
+                    WHERE d.dok_Status = 5
+                      AND (
+                            d.dok_DoDokNrPelny IS NULL
+                            OR LTRIM(RTRIM(CAST(d.dok_DoDokNrPelny AS NVARCHAR(100)))) = ''
+                            OR d.dok_DoDokNrPelny NOT LIKE 'WZ %'
+                      )
+                      AND p.ob_Ilosc > 0.00001
+                      {$goodsFilter}
+                ) x
+                GROUP BY x.product_id, x.warehouse_id";
+    }
+
+    /**
+     * @param array<int, string>|null $productSymbols
+     * @return string
+     */
+    protected static function sqlProductSymbolFilter($productSymbols, $towarAlias = 't')
+    {
+        if (!is_array($productSymbols) || empty($productSymbols)) {
+            return '';
+        }
+
+        $safeSymbols = array();
+        foreach ($productSymbols as $symbol) {
+            $symbol = trim((string) $symbol);
+            if ($symbol !== '') {
+                $safeSymbols[] = "'" . str_replace("'", "''", $symbol) . "'";
+            }
+        }
+        if (empty($safeSymbols)) {
+            return '';
+        }
+
+        $a = preg_replace('/[^a-zA-Z0-9_]/', '', (string) $towarAlias);
+        if ($a === '') {
+            $a = 't';
+        }
+
+        return ' AND ' . $a . '.tw_Symbol IN (' . implode(', ', $safeSymbols) . ')';
+    }
+
+    /**
+     * Dla ZK status 7 bez WZ z rezerwacją GT ustawia ob_IloscMag = ob_Ilosc
+     * (Informator „Ilość” bierze stąd; samo COM Rezerwacja bez IloscMag daje Ilość=0).
+     *
+     * @param int $orderId
+     * @return int liczba zaktualizowanych pozycji
+     */
+    public static function syncReservedOpenIloscMagSql($orderId)
+    {
+        $orderId = (int) $orderId;
+        if ($orderId <= 0) {
+            return 0;
+        }
+
+        $zkRow = self::getOrderRowByIdSql($orderId);
+        if ($zkRow === null) {
+            return 0;
+        }
+        $orderRef = trim((string) ($zkRow['dok_NrPelny'] ?? ''));
+        if ($orderRef === '' || !self::isOrderReservedOpenWithoutIssueSql($orderId, $orderRef)) {
+            return 0;
+        }
+
+        $countRows = MSSql::getInstance()->query(
+            "SELECT COUNT(*) AS cnt
+             FROM dok_Pozycja p
+             WHERE p.ob_DokHanId = {$orderId}
+               AND p.ob_Ilosc > 0.00001
+               AND ABS(p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0)) > 0.00001
+               AND (p.ob_TowRodzaj IS NULL OR p.ob_TowRodzaj <> " . self::TOW_RODZAJ_USLUGA . ")"
+        );
+        $toFix = is_array($countRows) && !empty($countRows) ? (int) ($countRows[0]['cnt'] ?? 0) : 0;
+        if ($toFix <= 0) {
+            return 0;
+        }
+
+        MSSql::getInstance()->query(
+            "UPDATE dok_Pozycja
+             SET ob_IloscMag = ob_Ilosc
+             WHERE ob_DokHanId = {$orderId}
+               AND ob_Ilosc > 0.00001
+               AND ABS(ob_Ilosc - ISNULL(ob_IloscMag, 0)) > 0.00001
+               AND (ob_TowRodzaj IS NULL OR ob_TowRodzaj <> " . self::TOW_RODZAJ_USLUGA . ")"
+        );
+
+        Logger::getInstance()->log(
+            'api',
+            'syncReservedOpenIloscMagSql: order_id=' . $orderId
+                . ' pozycji=' . $toFix . ' (IloscMag=Ilosc jak ręczne ZK z rezerwacją)',
+            __CLASS__ . '::syncReservedOpenIloscMagSql',
+            __LINE__
+        );
+
+        return $toFix;
+    }
+
+    /**
+     * ZK status 7 bez WZ z niepełnym IloscMag — Informator pokazuje Ilość=0 mimo rezerwacji.
+     *
+     * @param array<int, string>|null $productSymbols
+     * @return array<int, array{order_ref:string, order_id:int, symbol:string, ilosc:float, mag:float}>
+     */
+    public static function findIncompleteReservedOpenIloscMagSql(array $productSymbols = null)
+    {
+        $reservedOpen7 = self::sqlOrderReservedOpenWithoutIssuePredicate('d');
+        $goodsFilter = self::sqlWarehouseGoodsPositionsOnly('p');
+        $symbolFilter = self::sqlProductSymbolFilter($productSymbols, 't');
+
+        $rows = MSSql::getInstance()->query(
+            "SELECT d.dok_Id AS order_id,
+                    d.dok_NrPelny AS order_ref,
+                    t.tw_Symbol AS symbol,
+                    CAST(p.ob_Ilosc AS float) AS ilosc,
+                    CAST(ISNULL(p.ob_IloscMag, 0) AS float) AS mag
+             FROM dok__Dokument d
+             INNER JOIN dok_Pozycja p ON p.ob_DokHanId = d.dok_Id
+             INNER JOIN tw__Towar t ON t.tw_Id = p.ob_TowId
+             WHERE {$reservedOpen7}
+               AND p.ob_Ilosc > 0.00001
+               AND ABS(p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0)) > 0.00001
+               {$goodsFilter}
+               {$symbolFilter}
+             ORDER BY d.dok_Id DESC, t.tw_Symbol"
+        );
+
+        if (!is_array($rows)) {
+            return array();
+        }
+
+        $items = array();
+        foreach ($rows as $row) {
+            if (isset($row['SQLSTATE'])) {
+                continue;
+            }
+            $items[] = array(
+                'order_id' => (int) ($row['order_id'] ?? 0),
+                'order_ref' => trim((string) ($row['order_ref'] ?? '')),
+                'symbol' => trim((string) ($row['symbol'] ?? '')),
+                'ilosc' => (float) ($row['ilosc'] ?? 0),
+                'mag' => (float) ($row['mag'] ?? 0),
+            );
+        }
+
+        return $items;
+    }
+
+    /**
+     * Uzupełnia IloscMag=Ilosc na wszystkich ZK status 7 bez WZ z luką (jak ręczne ZK).
+     *
+     * @param array<int, string>|null $productSymbols filtr — i tak naprawia całe ZK z tym towarem
+     * @param bool $dryRun
+     * @return array
+     */
+    public static function repairIncompleteReservedOpenIloscMagSql(array $productSymbols = null, $dryRun = true)
+    {
+        $incomplete = self::findIncompleteReservedOpenIloscMagSql($productSymbols);
+        $orderIds = array();
+        foreach ($incomplete as $row) {
+            $id = (int) ($row['order_id'] ?? 0);
+            if ($id > 0) {
+                $orderIds[$id] = trim((string) ($row['order_ref'] ?? ''));
+            }
+        }
+
+        if ($dryRun || empty($orderIds)) {
+            return array(
+                'state' => $dryRun ? 'preview' : 'noop',
+                'dry_run' => (bool) $dryRun,
+                'count_positions' => count($incomplete),
+                'count_orders' => count($orderIds),
+                'items' => array_slice($incomplete, 0, 200),
+                'message' => empty($orderIds)
+                    ? 'Brak ZK z niepełnym IloscMag (Informator OK).'
+                    : ($dryRun
+                        ? 'Podgląd — ' . count($orderIds) . ' ZK wymaga IloscMag=Ilosc (Informator Ilość).'
+                        : 'Brak zmian.'),
+            );
+        }
+
+        $fixedPositions = 0;
+        $fixedOrders = array();
+        foreach ($orderIds as $orderId => $orderRef) {
+            $n = self::syncReservedOpenIloscMagSql($orderId);
+            if ($n > 0) {
+                $fixedPositions += $n;
+                $fixedOrders[] = $orderRef;
+                self::syncStockReservationsForOrderProductsSql($orderId, 1);
+            }
+        }
+
+        return array(
+            'state' => 'success',
+            'count_orders' => count($fixedOrders),
+            'count_positions' => $fixedPositions,
+            'orders' => $fixedOrders,
+            'message' => 'Ustawiono IloscMag=Ilosc na ' . count($fixedOrders)
+                . ' ZK — odśwież Informator w GT (F5).',
+        );
+    }
+
+    /**
+     * Oczekiwana rezerwacja magazynowa: ZK status 7 bez WZ (+ legacy status 5 bez WZ).
      *
      * @param int $warehouseId
      * @param array<int, string>|null $productSymbols opcjonalny filtr symboli
@@ -2516,21 +2806,8 @@ class Order extends SubiektObj
             $warehouseId = 1;
         }
 
-        $symbolFilter = '';
-        if (is_array($productSymbols) && !empty($productSymbols)) {
-            $safeSymbols = array();
-            foreach ($productSymbols as $symbol) {
-                $symbol = trim((string) $symbol);
-                if ($symbol !== '') {
-                    $safeSymbols[] = "'" . str_replace("'", "''", $symbol) . "'";
-                }
-            }
-            if (!empty($safeSymbols)) {
-                $symbolFilter = ' AND t.tw_Symbol IN (' . implode(', ', $safeSymbols) . ')';
-            }
-        }
-
-        $goodsFilter = self::sqlWarehouseGoodsPositionsOnly('p');
+        $symbolFilter = self::sqlProductSymbolFilter($productSymbols, 't');
+        $expectedSql = self::sqlExpectedStockReservationSubquery($warehouseId);
         $rows = MSSql::getInstance()->query(
             "SELECT s.st_TowId AS product_id,
                     t.tw_Symbol AS symbol,
@@ -2542,17 +2819,7 @@ class Order extends SubiektObj
              FROM tw_Stan s
              INNER JOIN tw__Towar t ON t.tw_Id = s.st_TowId
              LEFT JOIN (
-                 SELECT p.ob_TowId AS product_id,
-                        ISNULL(NULLIF(p.ob_MagId, 0), {$warehouseId}) AS warehouse_id,
-                        SUM(p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0)) AS expected_rez
-                 FROM dok_Pozycja p
-                 INNER JOIN dok__Dokument d ON d.dok_Id = p.ob_DokHanId
-                     AND d.dok_Typ = 16
-                     AND d.dok_Status >= 0
-                 WHERE d.dok_Status = 5
-                   AND p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0) > 0.00001
-                   {$goodsFilter}
-                 GROUP BY p.ob_TowId, ISNULL(NULLIF(p.ob_MagId, 0), {$warehouseId})
+                 {$expectedSql}
              ) e ON e.product_id = s.st_TowId AND e.warehouse_id = s.st_MagId
              WHERE s.st_MagId = {$warehouseId}
                AND ABS(ISNULL(s.st_StanRez, 0) - ISNULL(e.expected_rez, 0)) > 0.00001
@@ -2581,7 +2848,7 @@ class Order extends SubiektObj
     }
 
     /**
-     * Ustawia tw_Stan.st_StanRez wg otwartych ZK (status 5). Naprawia osierocone rezerwacje po domknięciu ZK przez SQL.
+     * Ustawia tw_Stan.st_StanRez wg ZK status 7 bez WZ (+ legacy 5).
      *
      * @param int $warehouseId
      * @param bool $dryRun
@@ -2596,8 +2863,9 @@ class Order extends SubiektObj
         }
 
         if (OrderComWriter::comWritesOnly() && !OrderComWriter::allowSqlWriteFallback()) {
+            // null = COM dopiero przy apply; podgląd (dryRun) to sam odczyt SQL.
             return OrderComWriter::syncStockReservationsFromOrders(
-                OrderComWriter::resolveSubiektGt(),
+                null,
                 $warehouseId,
                 $dryRun,
                 $productSymbols
@@ -2621,20 +2889,8 @@ class Order extends SubiektObj
             );
         }
 
-        $goodsFilter = self::sqlWarehouseGoodsPositionsOnly('p');
-        $symbolFilter = '';
-        if (is_array($productSymbols) && !empty($productSymbols)) {
-            $safeSymbols = array();
-            foreach ($productSymbols as $symbol) {
-                $symbol = trim((string) $symbol);
-                if ($symbol !== '') {
-                    $safeSymbols[] = "'" . str_replace("'", "''", $symbol) . "'";
-                }
-            }
-            if (!empty($safeSymbols)) {
-                $symbolFilter = ' AND t.tw_Symbol IN (' . implode(', ', $safeSymbols) . ')';
-            }
-        }
+        $symbolFilter = self::sqlProductSymbolFilter($productSymbols, 't');
+        $expectedSql = self::sqlExpectedStockReservationSubquery($warehouseId);
 
         MSSql::getInstance()->query(
             "UPDATE s
@@ -2642,17 +2898,7 @@ class Order extends SubiektObj
              FROM tw_Stan s
              INNER JOIN tw__Towar t ON t.tw_Id = s.st_TowId
              LEFT JOIN (
-                 SELECT p.ob_TowId AS product_id,
-                        ISNULL(NULLIF(p.ob_MagId, 0), {$warehouseId}) AS warehouse_id,
-                        SUM(p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0)) AS expected_rez
-                 FROM dok_Pozycja p
-                 INNER JOIN dok__Dokument d ON d.dok_Id = p.ob_DokHanId
-                     AND d.dok_Typ = 16
-                     AND d.dok_Status >= 0
-                 WHERE d.dok_Status = 5
-                   AND p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0) > 0.00001
-                   {$goodsFilter}
-                 GROUP BY p.ob_TowId, ISNULL(NULLIF(p.ob_MagId, 0), {$warehouseId})
+                 {$expectedSql}
              ) e ON e.product_id = s.st_TowId AND e.warehouse_id = s.st_MagId
              WHERE s.st_MagId = {$warehouseId}
                AND ABS(ISNULL(s.st_StanRez, 0) - ISNULL(e.expected_rez, 0)) > 0.00001
@@ -2678,7 +2924,7 @@ class Order extends SubiektObj
             'fixed_items' => $mismatches,
             'remaining_count' => count($after),
             'remaining_items' => $after,
-            'message' => 'Zsynchronizowano st_StanRez z otwartymi ZK (status 5). Odśwież stany w GT (F5).',
+            'message' => 'Zsynchronizowano st_StanRez z ZK status 7 bez WZ (+ legacy 5). Odśwież stany w GT (F5).',
         );
     }
 
@@ -3714,44 +3960,8 @@ class Order extends SubiektObj
     }
 
     /**
-     * ZK status 7/8 bez powiązanego WZ — rezerwacja zniknęła, zamówienie nadal otwarte.
-     *
-     * @param int $orderId
-     * @param string $orderRef
-     * @return bool
-     */
-    public static function isOrderStuckWithoutIssueSql($orderId, $orderRef)
-    {
-        $orderId = (int) $orderId;
-        $orderRef = trim((string) $orderRef);
-        if ($orderId <= 0 || $orderRef === '') {
-            return false;
-        }
-
-        $zkRow = self::getOrderRowByRefSql($orderRef);
-        if ($zkRow === null || (int) ($zkRow['dok_Id'] ?? 0) !== $orderId) {
-            return false;
-        }
-
-        $status = (int) ($zkRow['dok_Status'] ?? 0);
-        if (!self::isOrderStatusFulfilled($status)) {
-            return false;
-        }
-
-        if (self::orderHasActiveIssueLinksSql($orderId, $orderRef)) {
-            return false;
-        }
-
-        $headerWz = trim((string) ($zkRow['dok_DoDokNrPelny'] ?? ''));
-        if ($headerWz !== '' && stripos($headerWz, 'WZ ') === 0) {
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Czy ZK ma aktywną rezerwację (status 5 lub błędne 7 bez WZ po ręcznym „Rezerwuj stany” w GT).
+     * Czy ZK ma aktywną rezerwację: w tym GT status 7 bez WZ (jak ręczne ZK),
+     * ewentualnie legacy status 5 bez WZ.
      *
      * @param int $orderId
      * @param string $orderRef
@@ -3771,19 +3981,98 @@ class Order extends SubiektObj
         }
 
         $status = (int) ($zkRow['dok_Status'] ?? 0);
-        if ($status === 5) {
+        if ($status === 7 && self::isOrderReservedOpenWithoutIssueSql($orderId, $orderRef)) {
             return true;
         }
 
-        if ($status === 7 && self::isOrderStuckWithoutIssueSql($orderId, $orderRef)) {
-            return true;
+        // Legacy po błędnym API (forsowanie statusu 5).
+        if ($status === 5 && !self::orderHasActiveIssueLinksSql($orderId, $orderRef)) {
+            $headerWz = trim((string) ($zkRow['dok_DoDokNrPelny'] ?? ''));
+            if ($headerWz === '' || stripos($headerWz, 'WZ ') !== 0) {
+                return true;
+            }
         }
 
         return false;
     }
 
     /**
+     * Otwarte ZK z rezerwacją: dok_Status=7, bez powiązanego WZ (wzorzec ręcznego ZK w GT).
+     *
+     * @param int $orderId
+     * @param string $orderRef
+     * @return bool
+     */
+    public static function isOrderReservedOpenWithoutIssueSql($orderId, $orderRef)
+    {
+        $orderId = (int) $orderId;
+        $orderRef = trim((string) $orderRef);
+        if ($orderId <= 0 || $orderRef === '') {
+            return false;
+        }
+
+        $zkRow = self::getOrderRowByRefSql($orderRef);
+        if ($zkRow === null || (int) ($zkRow['dok_Id'] ?? 0) !== $orderId) {
+            return false;
+        }
+
+        if ((int) ($zkRow['dok_Status'] ?? 0) !== 7) {
+            return false;
+        }
+
+        if (self::orderHasActiveIssueLinksSql($orderId, $orderRef)) {
+            return false;
+        }
+
+        $headerWz = trim((string) ($zkRow['dok_DoDokNrPelny'] ?? ''));
+        if ($headerWz !== '' && stripos($headerWz, 'WZ ') === 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Anomalia: status 8 (po WZ) ale bez żadnego WZ — nie mylić ze statusem 7 z rezerwacją.
+     *
+     * @param int $orderId
+     * @param string $orderRef
+     * @return bool
+     */
+    public static function isOrderStuckWithoutIssueSql($orderId, $orderRef)
+    {
+        $orderId = (int) $orderId;
+        $orderRef = trim((string) $orderRef);
+        if ($orderId <= 0 || $orderRef === '') {
+            return false;
+        }
+
+        $zkRow = self::getOrderRowByRefSql($orderRef);
+        if ($zkRow === null || (int) ($zkRow['dok_Id'] ?? 0) !== $orderId) {
+            return false;
+        }
+
+        $status = (int) ($zkRow['dok_Status'] ?? 0);
+        // Status 7 bez WZ = normalna rezerwacja, nie „stuck”.
+        if ($status !== 8) {
+            return false;
+        }
+
+        if (self::orderHasActiveIssueLinksSql($orderId, $orderRef)) {
+            return false;
+        }
+
+        $headerWz = trim((string) ($zkRow['dok_DoDokNrPelny'] ?? ''));
+        if ($headerWz !== '' && stripos($headerWz, 'WZ ') === 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Zeruje ob_IloscMag na pozycjach ZK bez realnego powiązania WZ (ob_DoId).
+     * Nie używać dla normalnego statusu 7 z rezerwacją — IloscMag pełne jest OK w GT.
      *
      * @param int $orderId
      * @return int
@@ -3873,7 +4162,8 @@ class Order extends SubiektObj
     }
 
     /**
-     * Cofa ZK 7/8 bez WZ do statusu 5 i przywraca rezerwacje magazynowe (st_StanRez).
+     * Anomalia status 8 bez WZ → przywróć 7 (z rezerwacją) lub 6.
+     * Status 7 bez WZ to normalna rezerwacja — nie ruszać.
      *
      * @param string $orderRef
      * @param int $warehouseId
@@ -3895,16 +4185,26 @@ class Order extends SubiektObj
 
         $orderId = (int) ($zkRow['dok_Id'] ?? 0);
         $statusBefore = (int) ($zkRow['dok_Status'] ?? 0);
+
+        if (self::isOrderReservedOpenWithoutIssueSql($orderId, $orderRef)) {
+            return array(
+                'state' => 'noop',
+                'order_ref' => $orderRef,
+                'zk_status' => $statusBefore,
+                'message' => 'ZK status 7 bez WZ = normalna rezerwacja — bez zmian.',
+            );
+        }
+
         if (!self::isOrderStuckWithoutIssueSql($orderId, $orderRef)) {
             return array(
                 'state' => 'noop',
                 'order_ref' => $orderRef,
                 'zk_status' => $statusBefore,
-                'message' => 'ZK nie jest w stanie 7/8 bez WZ — pominięto.',
+                'message' => 'ZK nie jest anomalią status 8 bez WZ — pominięto.',
             );
         }
 
-        $hadReservation = in_array($statusBefore, array(5, 7), true)
+        $hadReservation = in_array($statusBefore, array(5, 7, 8), true)
             || (int) ($zkRow['dok_ZrealizowaneZRezerwacja'] ?? 0) === 1;
 
         if ($dryRun) {
@@ -3915,11 +4215,10 @@ class Order extends SubiektObj
                 'order_id' => $orderId,
                 'zk_status' => $statusBefore,
                 'had_reservation' => $hadReservation,
-                'message' => 'Podgląd — użyj apply, aby cofnąć ZK do statusu 5 i zsynchronizować rezerwacje.',
+                'message' => 'Podgląd — apply przywróci status 8 bez WZ do 7 (z rezerwacją) lub 6.',
             );
         }
 
-        $positionsReset = self::resetOrderPositionIssuedQtyWithoutIssueSql($orderId);
         $reopened = self::reopenOrderAfterIssueRemovalSql($orderId, $orderRef, $hadReservation);
         $resSync = null;
         if ($syncStockReservations) {
@@ -3932,7 +4231,6 @@ class Order extends SubiektObj
             'api',
             'repairStuckOrderWithoutIssueSql: order_ref=' . $orderRef
                 . ', status ' . $statusBefore . '→' . $statusAfter
-                . ', positions_reset=' . $positionsReset
                 . ', reopened=' . ($reopened ? 'tak' : 'nie'),
             __CLASS__ . '->' . __FUNCTION__,
             __LINE__
@@ -3944,13 +4242,11 @@ class Order extends SubiektObj
             'order_id' => $orderId,
             'zk_status_before' => $statusBefore,
             'zk_status_after' => $statusAfter,
-            'positions_reset' => $positionsReset,
+            'positions_reset' => 0,
             'reopened_sql' => $reopened,
             'reservation_sync' => $resSync,
             'message' => $reopened
-                ? 'ZK cofnięte do statusu 5 w SQL — rezerwacje magazynowe zsynchronizowane. '
-                    . 'Napis „Rezerwuj stany magazynowe” w GT wymaga Zapisz przez COM (Sfera); '
-                    . 'sam SQL nie odświeża dropdownu — odśwież listę F5 lub uruchom naprawę z --with-com.'
+                ? 'Anomalia status 8 bez WZ → status ' . $statusAfter . '.'
                 : 'Częściowa naprawa — sprawdź ZK w GT.',
         );
     }
@@ -4050,10 +4346,10 @@ class Order extends SubiektObj
     }
 
     /**
-     * COM: Rezerwacja=true + Zapisz() — odświeża Informator produktu i dropdown w GT.
-     * Samo dok_Status=5 w SQL nie wystarcza (kolumna Ilość w Informatorze = rezerwacja COM).
+     * COM: Rezerwacja=true + Zapisz() — w tym GT kończy się statusem 7 (otwarte z rezerwacją).
+     * Nie forsować SQL dok_Status=5 — to psuje stan względem ręcznego ZK w Subiekcie.
      *
-     * @param bool|null $enable null = wg SQL (status 5), true/false = wymuszenie
+     * @param bool|null $enable null = wg SQL, true/false = wymuszenie
      * @return array{synced:bool, skipped?:string, reservation?:bool, state?:int, error?:string, message?:string}
      */
     public function syncOrderReservationInCom($enable = null)
@@ -4080,112 +4376,126 @@ class Order extends SubiektObj
 
         $sqlRow = self::getOrderRowByIdSql((int) $this->gt_id);
         $sqlState = $sqlRow !== null ? (int) ($sqlRow['dok_Status'] ?? 0) : $state;
+        $reservedOpen = self::isOrderReservedOpenWithoutIssueSql((int) $this->gt_id, $this->order_ref);
+        $stuckClosed = self::isOrderStuckWithoutIssueSql((int) $this->gt_id, $this->order_ref);
 
-        if ($enable && self::isOrderStatusOpen($sqlState) && !self::isOrderStatusOpen($state)) {
-            $reopened = OrderComWriter::reopenOrderStatus(
-                $this->subiektGt,
-                (int) $this->gt_id,
-                $this->order_ref,
-                true
+        // Docelowo: status 7 + COM Rezerwacja + IloscMag=Ilosc (jak ręczne ZK 3697).
+        if (!$forceResync && $enable && $comReserved && ($reservedOpen || (int) $sqlState === 7)) {
+            $magFixed = self::syncReservedOpenIloscMagSql((int) $this->gt_id);
+            if ($magFixed > 0) {
+                return array(
+                    'synced' => true,
+                    'reservation' => true,
+                    'state' => $sqlState,
+                    'ilosc_mag_fixed' => $magFixed,
+                    'message' => 'Uzupełniono IloscMag=Ilosc (' . $magFixed
+                        . ' poz.) — Informator pokazywał Ilość=0.',
+                );
+            }
+
+            return array(
+                'synced' => true,
+                'skipped' => 'already_synced',
+                'reservation' => true,
+                'state' => $sqlState,
+                'message' => 'COM Rezerwacja + status 7 + IloscMag już OK — pomijam Zapisz().',
             );
-            if (!$reopened) {
-                $reopened = (bool) MSSql::withSqlWriteFallback(function () {
-                    return self::reopenOrderAfterIssueRemovalSqlDirect((int) $this->gt_id, true);
-                });
-            }
-            $this->reloadOrderFromGt();
-            $state = (int) $this->state;
-            $comReserved = (bool) ($this->orderGt->Rezerwacja ?? false);
         }
 
-        if (!$forceResync && $comReserved === $enable) {
-            if (!$enable) {
+        if (!$forceResync && !$enable && !$comReserved) {
+            return array(
+                'synced' => true,
+                'skipped' => 'already_synced',
+                'reservation' => false,
+                'state' => $state,
+                'message' => 'COM już bez rezerwacji.',
+            );
+        }
+
+        if (!$enable) {
+            if (!self::isOrderStatusOpen($state) && !$stuckClosed && !$comReserved) {
                 return array(
                     'synced' => true,
-                    'skipped' => 'already_synced',
-                    'reservation' => $comReserved,
+                    'skipped' => 'not_open',
+                    'reservation' => false,
                     'state' => $state,
-                    'message' => 'COM już zsynchronizowane z SQL.',
+                    'message' => 'ZK zamknięte bez rezerwacji COM.',
                 );
             }
-            if ((int) $state === 5 && (int) $sqlState === 5) {
+
+            try {
+                $this->orderGt->Rezerwacja = false;
+                $this->orderGt->Zapisz();
+                $this->reloadOrderFromGt();
+
                 return array(
                     'synced' => true,
-                    'skipped' => 'already_synced',
-                    'reservation' => $comReserved,
+                    'reservation' => false,
+                    'state' => (int) $this->state,
+                    'message' => 'Zwolniono rezerwację COM.',
+                );
+            } catch (\Throwable $e) {
+                return array(
+                    'synced' => false,
+                    'error' => $e->getMessage(),
                     'state' => $state,
-                    'message' => 'COM już ma rezerwację (status 5) — pomijam ponowny Zapisz().',
+                    'message' => 'Nie udało się zwolnić rezerwacji COM.',
                 );
             }
         }
 
-        if (!self::isOrderStatusOpen($state)) {
-            if ($enable === false && $comReserved) {
-                try {
-                    $this->orderGt->Rezerwacja = false;
-                    $this->orderGt->Przelicz();
-                    $this->orderGt->Zapisz();
-                    $this->reloadOrderFromGt();
-
-                    return array(
-                        'synced' => true,
-                        'reservation' => false,
-                        'state' => (int) $this->state,
-                        'message' => 'Zwolniono rezerwację COM na zamkniętym ZK.',
-                    );
-                } catch (\Throwable $e) {
-                    return array(
-                        'synced' => false,
-                        'error' => $e->getMessage(),
-                        'state' => $state,
-                        'message' => 'Nie udało się zwolnić rezerwacji COM na zamkniętym ZK.',
-                    );
-                }
-            }
-
+        // enable=true — akceptuj 5/6/7 oraz anomalię status 8 bez WZ.
+        if (!self::isOrderStatusOpen($state) && !$stuckClosed && (int) $sqlState !== 5) {
             return array(
                 'synced' => false,
                 'skipped' => 'not_open',
                 'state' => $state,
                 'sql_state' => $sqlState,
-                'message' => 'ZK nie jest otwarte w COM (status ' . $state . ').',
+                'message' => 'ZK nie przyjmie rezerwacji (status ' . $state . ').',
             );
         }
 
         try {
-            $this->orderGt->Rezerwacja = $enable;
-            if ($enable && self::isOrderStatusOpen($sqlState)) {
-                OrderComWriter::trySetProperty(
-                    $this->orderGt,
-                    array('Status', 'StatusDokumentu', 'StanDokumentu'),
-                    5
-                );
-            }
-            $this->orderGt->Przelicz();
-            $this->orderGt->Zapisz();
-            $this->reloadOrderFromGt();
-            $stateAfter = (int) $this->state;
-            if ($enable && self::isOrderStatusOpen($sqlState) && !self::isOrderStatusOpen($stateAfter)) {
+            if ($stuckClosed) {
                 MSSql::withSqlWriteFallback(function () {
                     return self::reopenOrderAfterIssueRemovalSqlDirect((int) $this->gt_id, true);
                 });
-                $stateAfter = (int) (self::getOrderRowByIdSql((int) $this->gt_id)['dok_Status'] ?? $stateAfter);
+                $this->reloadOrderFromGt();
             }
+
+            $this->orderGt->Rezerwacja = true;
+            $this->orderGt->Zapisz();
+            $this->reloadOrderFromGt();
+
+            $stateAfter = (int) $this->state;
+            $comAfter = (bool) ($this->orderGt->Rezerwacja ?? false);
+            $sqlAfter = (int) (self::getOrderRowByIdSql((int) $this->gt_id)['dok_Status'] ?? $stateAfter);
+            $magFixed = 0;
+            if ($comAfter && (int) $sqlAfter === 7) {
+                $magFixed = self::syncReservedOpenIloscMagSql((int) $this->gt_id);
+            }
+
             Logger::getInstance()->log(
                 'api',
                 'syncOrderReservationInCom: ' . $this->order_ref
-                    . ' rezerwacja=' . ($enable ? 'tak' : 'nie')
-                    . ', status=' . (int) $this->state,
+                    . ' rezerwacja=' . ($comAfter ? 'tak' : 'nie')
+                    . ', sql_status=' . $sqlAfter
+                    . ', ilosc_mag_fixed=' . $magFixed,
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
 
             return array(
-                'synced' => true,
-                'reservation' => (bool) ($this->orderGt->Rezerwacja ?? $enable),
-                'state' => $stateAfter,
-                'sql_state' => $sqlState,
-                'message' => 'Zsynchronizowano rezerwację COM — odśwież Informator / listę ZK (F5).',
+                'synced' => $comAfter && in_array($sqlAfter, array(5, 7), true),
+                'reservation' => $comAfter,
+                'state' => $sqlAfter,
+                'sql_state' => $sqlAfter,
+                'ilosc_mag_fixed' => $magFixed,
+                'message' => $comAfter
+                    ? 'COM Rezerwacja zapisana (status ' . $sqlAfter
+                        . ($magFixed > 0 ? ', IloscMag uzupełnione' : '')
+                        . ') — odśwież Informator / listę ZK (F5).'
+                    : 'Zapisz COM wykonany, ale Rezerwacja nadal false.',
             );
         } catch (\Throwable $e) {
             Logger::getInstance()->log(
@@ -4204,7 +4514,9 @@ class Order extends SubiektObj
     }
 
     /**
-     * Przygotowuje ZK przed WZ z API: cofa błędne 7 bez WZ, nie nadpisuje rezerwacji SQL z GT.
+     * Przygotowuje ZK przed WZ z API.
+     * Status 7 bez WZ = normalna rezerwacja — nie cofać do 5.
+     * Status 8 bez WZ = anomalia — przywróć do 7/6.
      *
      * @return array{prepared:bool, state:int, reservation:bool}
      */
@@ -4214,7 +4526,6 @@ class Order extends SubiektObj
         $prepared = false;
 
         if ($orderId > 0 && self::isOrderStuckWithoutIssueSql($orderId, $this->order_ref)) {
-            self::resetOrderPositionIssuedQtyWithoutIssueSql($orderId);
             $hadReservation = $this->orderHadReservationForClose();
             if (self::reopenOrderAfterIssueRemovalSql($orderId, $this->order_ref, $hadReservation)) {
                 $prepared = true;
@@ -4222,8 +4533,8 @@ class Order extends SubiektObj
             $this->reloadOrderFromGt();
             Logger::getInstance()->log(
                 'api',
-                'prepareOrderForIssueFromApi: cofnięto ZK 7/8 bez WZ do statusu 5 dla '
-                    . $this->order_ref,
+                'prepareOrderForIssueFromApi: anomalia status 8 bez WZ → '
+                    . ($hadReservation ? '7' : '6') . ' dla ' . $this->order_ref,
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
@@ -4232,24 +4543,7 @@ class Order extends SubiektObj
             $prepared = $this->reopenOrderForIssueIfNeeded();
         }
 
-        if ($orderId > 0
-            && $this->orderGt
-            && self::isOrderStatusOpen((int) $this->state)
-            && !self::orderHasActiveIssueLinksSql($orderId, $this->order_ref)) {
-            $reset = self::resetOrderPositionIssuedQtyWithoutIssueSql($orderId);
-            if ($reset > 0) {
-                $prepared = true;
-                $this->reloadOrderFromGt();
-                Logger::getInstance()->log(
-                    'api',
-                    'prepareOrderForIssueFromApi: zerowano ob_IloscMag bez WZ dla '
-                        . $this->order_ref . ' (pozycji: ' . $reset . ')',
-                    __CLASS__ . '->' . __FUNCTION__,
-                    __LINE__
-                );
-            }
-        }
-
+        // Nie zerować IloscMag na statusie 7 z rezerwacją — w GT jest pełne i tak ma być.
         if ($this->orderGt && self::isOrderStatusOpen((int) $this->state)) {
             $this->ensureOrderReservationBeforeIssue();
         }
@@ -4628,7 +4922,7 @@ class Order extends SubiektObj
     }
 
     /**
-     * Cofa status 7/8 → 5/6 w SQL (gdy COM Status niedostępny).
+     * Cofa status 8 → 7/6 w SQL (gdy COM Status niedostępny). Po usunięciu WZ wracamy do rezerwacji.
      *
      * @param int $orderId
      * @param bool $withReservation
@@ -4650,14 +4944,15 @@ class Order extends SubiektObj
             );
         }
 
-        $targetStatus = $withReservation ? 5 : 6;
+        $targetStatus = $withReservation ? 7 : 6;
         MSSql::getInstance()->query(
             "UPDATE dok__Dokument
              SET dok_Status = {$targetStatus},
+                 dok_StatusEx = ISNULL(dok_StatusEx, 0) & ~4,
                  dok_ZrealizowaneZRezerwacja = 0
              WHERE dok_Id = {$orderId}
                AND dok_Typ = 16
-               AND dok_Status IN (7, 8)"
+               AND dok_Status IN (5, 6, 7, 8)"
         );
 
         $rows = MSSql::getInstance()->query(
@@ -4906,11 +5201,15 @@ class Order extends SubiektObj
             return false;
         }
 
-        $targetStatus = $withReservation ? 5 : 6;
+        $targetStatus = $withReservation ? 7 : 6;
         MSSql::getInstance()->query(
             "UPDATE dok__Dokument
              SET " . self::sqlSetClearedDocumentLinkFields() . ",
-                 dok_Status = CASE WHEN dok_Status IN (7, 8) THEN {$targetStatus} ELSE dok_Status END,
+                 dok_Status = CASE
+                     WHEN dok_Status IN (5, 7, 8) THEN {$targetStatus}
+                     WHEN dok_Status = 6 AND {$targetStatus} = 7 THEN 7
+                     ELSE dok_Status
+                 END,
                  dok_StatusEx = ISNULL(dok_StatusEx, 0) & ~4,
                  dok_ZrealizowaneZRezerwacja = 0
              WHERE dok_Id = {$orderId}
@@ -6793,9 +7092,44 @@ class Order extends SubiektObj
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
+        } elseif ($hadReservation || $hasValidIssue) {
+            // Częściowe WZ / bez pełnego close — dograj st_StanRez (COM bywa niespójny z tw_Stan).
+            $this->syncStockReservationsAfterIssueLifecycle();
         }
 
         return $this->isBusinessComplete() || ($closeOrder && $this->isZkFulfilledForApi());
+    }
+
+    /**
+     * Po WZ / domknięciu ZK — ustaw st_StanRez wg ZK status 7 bez WZ (+ legacy 5).
+     * Flaga COM Rezerwacja sama nie zawsze aktualizuje tw_Stan.st_StanRez.
+     *
+     * @return array
+     */
+    protected function syncStockReservationsAfterIssueLifecycle()
+    {
+        $orderId = (int) $this->gt_id;
+        if ($orderId <= 0) {
+            return array('state' => 'noop', 'count' => 0);
+        }
+
+        $warehouseId = $this->cfg ? (int) $this->cfg->getWarehouse() : 1;
+        if ($warehouseId <= 0) {
+            $warehouseId = 1;
+        }
+
+        $resSync = self::syncStockReservationsForOrderProductsSql($orderId, $warehouseId);
+        Logger::getInstance()->log(
+            'api',
+            'syncStockReservationsAfterIssueLifecycle: ' . $this->order_ref
+                . ' state=' . (string) ($resSync['state'] ?? '?')
+                . ' count=' . (int) ($resSync['count'] ?? $resSync['fixed_count'] ?? 0)
+                . ' message=' . (string) ($resSync['message'] ?? ''),
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+
+        return is_array($resSync) ? $resSync : array('state' => 'noop', 'count' => 0);
     }
 
     /**
@@ -6819,11 +7153,14 @@ class Order extends SubiektObj
         $this->reloadOrderFromGt();
 
         if (self::isOrderStatusFulfilled((int) $this->state)) {
+            $resSync = $this->syncStockReservationsAfterIssueLifecycle();
+
             return array(
                 'target_status' => (int) $this->state,
                 'gt_closed' => true,
                 'com_saved' => false,
                 'method' => $freshIssueFromNaPodstawie ? 'gt_auto_after_na_podstawie' : 'gt_already_closed',
+                'reservation_sync' => $resSync,
             );
         }
 
@@ -6833,11 +7170,14 @@ class Order extends SubiektObj
             }
             $this->reloadOrderFromGt();
             if (self::isOrderStatusFulfilled((int) $this->state)) {
+                $resSync = $this->syncStockReservationsAfterIssueLifecycle();
+
                 return array(
                     'target_status' => (int) $this->state,
                     'gt_closed' => true,
                     'com_saved' => false,
                     'method' => 'gt_after_wz_refresh',
+                    'reservation_sync' => $resSync,
                 );
             }
         }
@@ -6882,6 +7222,8 @@ class Order extends SubiektObj
             }
         }
 
+        $resSync = $this->syncStockReservationsAfterIssueLifecycle();
+
         return array(
             'target_status' => $gtClosed ? (int) $this->state : $targetStatus,
             'gt_closed' => $gtClosed,
@@ -6889,6 +7231,7 @@ class Order extends SubiektObj
             'method' => $gtClosed
                 ? ($freshIssueFromNaPodstawie ? 'gt_auto_after_na_podstawie' : 'gt_after_zk_zapisz')
                 : 'gt_still_open',
+            'reservation_sync' => $resSync,
         );
     }
 
@@ -7755,6 +8098,7 @@ class Order extends SubiektObj
 
     /**
      * Odświeża rezerwację ZK w COM przed WZ (ZapiszSymulacja inaczej liczy IloscDostepna).
+     * Status 7 bez WZ jest OK — nie cofamy do 5.
      *
      * @return bool
      */
@@ -7767,7 +8111,6 @@ class Order extends SubiektObj
         $orderId = (int) $this->gt_id;
         $state = (int) $this->state;
         if ($orderId > 0 && self::isOrderStuckWithoutIssueSql($orderId, $this->order_ref)) {
-            self::resetOrderPositionIssuedQtyWithoutIssueSql($orderId);
             self::reopenOrderAfterIssueRemovalSql(
                 $orderId,
                 $this->order_ref,
@@ -7777,7 +8120,7 @@ class Order extends SubiektObj
             $state = (int) $this->state;
         }
 
-        if (!in_array($state, array(5, 6), true)) {
+        if (!in_array($state, array(5, 6, 7), true)) {
             return false;
         }
 
@@ -7786,11 +8129,6 @@ class Order extends SubiektObj
         }
 
         $sync = $this->syncOrderReservationInCom(true);
-        $warehouseId = $this->cfg ? (int) $this->cfg->getWarehouse() : 1;
-        if ($orderId > 0
-            && empty(self::getOrderWarehouseStockShortagesSql($orderId, $warehouseId, $state))) {
-            $this->rebuildComReservationForIssue();
-        }
 
         if ($sync['synced'] ?? false) {
             return true;
@@ -7824,19 +8162,11 @@ class Order extends SubiektObj
 
         try {
             $this->reloadOrderFromGt();
-            $this->orderGt->Rezerwacja = false;
-            $this->orderGt->Przelicz();
-            $this->orderGt->Zapisz();
-            $this->reloadOrderFromGt();
-            $this->orderGt->Rezerwacja = true;
-            OrderComWriter::trySetProperty(
-                $this->orderGt,
-                array('Status', 'StatusDokumentu', 'StanDokumentu'),
-                5
-            );
-            $this->orderGt->Przelicz();
-            $this->orderGt->Zapisz();
-            $this->reloadOrderFromGt();
+            // COM Rezerwacja off→on → status 7 (jak ręczne ZK).
+            $this->orderDetail['force_resync'] = true;
+            $this->syncOrderReservationInCom(false);
+            $this->orderDetail['force_resync'] = true;
+            $sync = $this->syncOrderReservationInCom(true);
 
             $warehouseId = $this->cfg ? (int) $this->cfg->getWarehouse() : 1;
             self::syncStockReservationsForOrderProductsSql((int) $this->gt_id, $warehouseId);
@@ -7844,12 +8174,13 @@ class Order extends SubiektObj
             Logger::getInstance()->log(
                 'api',
                 'rebuildComReservationLinesForIssue: przebudowano rezerwację COM dla '
-                    . $this->order_ref,
+                    . $this->order_ref
+                    . ' synced=' . (!empty($sync['synced']) ? '1' : '0'),
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
 
-            return true;
+            return !empty($sync['synced']);
         } catch (\Throwable $e) {
             Logger::getInstance()->log(
                 'api',
@@ -8488,25 +8819,27 @@ class Order extends SubiektObj
     }
 
     /**
-     * Statusy ZK w Subiekcie GT oznaczające zamówienie jawnie niezrealizowane (dok_Status).
+     * Statusy ZK nadal „otwarte” operacyjnie (można wystawić WZ).
+     * W tym GT status 7 bez WZ = rezerwacja otwarta — też tu (sam numer statusu).
      *
      * @param int|null $state
      * @return bool
      */
     public static function isOrderStatusOpen($state)
     {
-        return $state !== null && in_array((int) $state, array(5, 6), true);
+        return $state !== null && in_array((int) $state, array(5, 6, 7), true);
     }
 
     /**
-     * Czy ZK ma w Subiekcie status zamknięty (dok_Status 7 lub 8).
+     * Czy ZK ma status zamknięty po WZ (dok_Status 8).
+     * Status 7 bez WZ to rezerwacja otwarta, nie domknięcie.
      *
      * @param int|null $state
      * @return bool
      */
     public static function isOrderStatusFulfilled($state)
     {
-        return $state !== null && in_array((int) $state, array(7, 8), true);
+        return $state !== null && (int) $state === 8;
     }
 
     /**
@@ -8545,7 +8878,7 @@ class Order extends SubiektObj
         }
 
         $previousState = (int) $this->state;
-        $targetStatus = $this->orderHadReservationForClose($previousState) ? 5 : 6;
+        $targetStatus = $this->orderHadReservationForClose($previousState) ? 7 : 6;
 
         $reopened = false;
         $statusSet = self::trySetComObjectProperty(
@@ -8555,7 +8888,9 @@ class Order extends SubiektObj
         );
         if ($statusSet !== false) {
             try {
-                $this->orderGt->Przelicz();
+                if ($targetStatus === 7) {
+                    $this->orderGt->Rezerwacja = true;
+                }
                 $this->orderGt->Zapisz();
                 $this->reloadOrderFromGt();
                 $reopened = true;
@@ -8570,7 +8905,7 @@ class Order extends SubiektObj
         }
 
         if (!$reopened && !OrderComWriter::comWritesOnly()) {
-            $reopened = self::reopenOrderStatusInSql((int) $this->gt_id, $targetStatus === 5);
+            $reopened = self::reopenOrderStatusInSql((int) $this->gt_id, $targetStatus === 7);
             if ($reopened) {
                 $this->reloadOrderFromGt();
             }
@@ -8579,7 +8914,7 @@ class Order extends SubiektObj
                 $this->subiektGt,
                 (int) $this->gt_id,
                 $this->order_ref,
-                $targetStatus === 5
+                $targetStatus === 7
             );
             if ($reopened) {
                 $this->reloadOrderFromGt();
@@ -8802,6 +9137,85 @@ class Order extends SubiektObj
     }
 
 
+    /**
+     * Po add/update ZK: upewnij COM Rezerwacja → status 7 (jak ręczne ZK w GT).
+     * Nie cofaj 7→5 i nie zeruj IloscMag na ZK z rezerwacją.
+     *
+     * @return array
+     */
+    protected function ensureReservationConsistentAfterSave()
+    {
+        if ((int) $this->gt_id <= 0 || trim((string) $this->order_ref) === '') {
+            if ($this->orderGt) {
+                $this->getGtObject();
+            }
+        }
+
+        $orderId = (int) $this->gt_id;
+        $orderRef = trim((string) $this->order_ref);
+        if ($orderId <= 0 || $orderRef === '') {
+            return array(
+                'state' => 'noop',
+                'message' => 'Brak order_id/ref po zapisie ZK.',
+            );
+        }
+
+        $warehouseId = $this->cfg ? (int) $this->cfg->getWarehouse() : 1;
+        if ($warehouseId <= 0) {
+            $warehouseId = 1;
+        }
+
+        $result = array(
+            'state' => 'ok',
+            'order_ref' => $orderRef,
+            'order_id' => $orderId,
+            'repaired_stuck' => false,
+            'positions_reset' => 0,
+            'reservation_sync' => null,
+        );
+
+        // Anomalia: status 8 bez WZ.
+        if (self::isOrderStuckWithoutIssueSql($orderId, $orderRef)) {
+            $wantReservation = (bool) $this->reservation
+                || self::orderHasActiveReservationSql($orderId, $orderRef)
+                || in_array((int) $this->state, array(5, 7, 8), true);
+
+            $repair = self::repairStuckOrderWithoutIssueSql(
+                $orderRef,
+                $warehouseId,
+                false,
+                true
+            );
+            $result['repaired_stuck'] = true;
+            $result['stuck_repair'] = $repair;
+
+            $this->reloadOrderFromGt();
+            if ($wantReservation && $this->orderGt) {
+                $this->orderDetail['force_resync'] = true;
+                $result['com_reservation'] = $this->syncOrderReservationInCom(true);
+            }
+
+            $result['reservation_sync'] = $this->syncStockReservationsAfterIssueLifecycle();
+            $result['state'] = (($repair['state'] ?? '') === 'success') ? 'repaired' : 'partial';
+
+            return $result;
+        }
+
+        // Rezerwacja: COM Zapisz → status 7 (nie SQL 5).
+        $wantReservation = (bool) $this->reservation
+            || self::orderHasActiveReservationSql($orderId, $orderRef)
+            || in_array((int) $this->state, array(5, 7), true);
+
+        if ($wantReservation && $this->orderGt && self::isOrderStatusOpen((int) $this->state)) {
+            $this->orderDetail['force_resync'] = true;
+            $result['com_reservation'] = $this->syncOrderReservationInCom(true);
+        }
+
+        $result['reservation_sync'] = $this->syncStockReservationsAfterIssueLifecycle();
+
+        return $result;
+    }
+
     public function add()
 {
     $this->customer = isset($this->orderDetail['customer']) ? $this->orderDetail['customer'] : false;
@@ -8889,12 +9303,23 @@ class Order extends SubiektObj
         );
     }
 
+    $consistency = $this->ensureReservationConsistentAfterSave();
+    Logger::getInstance()->log(
+        'api',
+        'add: ensureReservationConsistentAfterSave ' . $this->order_ref
+            . ' state=' . (string) ($consistency['state'] ?? '?')
+            . ' repaired_stuck=' . (!empty($consistency['repaired_stuck']) ? 'tak' : 'nie'),
+        __CLASS__ . '->' . __FUNCTION__,
+        __LINE__
+    );
+
     Logger::getInstance()->log('api', 'Utworzono zamówienie dla kontrahenta o NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
 
     $result = [
         'order_ref' => $this->order_ref,
         'order_amount' => $this->amount,
         'reservation' => (bool) $this->reservation,
+        'zk_status' => (int) $this->state,
     ];
     if ($reservationSync !== null) {
         $result['reservation_synced'] = (bool) ($reservationSync['synced'] ?? false);
@@ -8902,6 +9327,7 @@ class Order extends SubiektObj
             $result['reservation_sync_error'] = $reservationSync['error'];
         }
     }
+    $result['reservation_consistency'] = $consistency;
 
     return $result;
 }
@@ -9004,15 +9430,42 @@ class Order extends SubiektObj
             throw $e;
         }
 
-        $positions_count = $this->orderGt->Pozycje->Liczba();
+        $this->getGtObject();
+
+        $reservationSync = null;
+        if ($this->reservation) {
+            $reservationSync = $this->syncOrderReservationInCom(true);
+        }
+
+        $consistency = $this->ensureReservationConsistentAfterSave();
+        Logger::getInstance()->log(
+            'api',
+            'update: ensureReservationConsistentAfterSave ' . $this->order_ref
+                . ' state=' . (string) ($consistency['state'] ?? '?')
+                . ' repaired_stuck=' . (!empty($consistency['repaired_stuck']) ? 'tak' : 'nie'),
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+
+        $positions_count = $this->orderGt ? $this->orderGt->Pozycje->Liczba() : 0;
         Logger::getInstance()->log('api', 'update: sukces, order_ref=' . $this->order_ref . ', order_amount=' . $this->amount . ', positions_count=' . $positions_count, __CLASS__ . '->' . __FUNCTION__, __LINE__);
 
-        return [
+        $result = [
             'order_ref' => $this->order_ref,
             'order_amount' => $this->amount,
             'positions_count' => $positions_count,
             'reservation' => (bool) $this->reservation,
+            'zk_status' => (int) $this->state,
+            'reservation_consistency' => $consistency,
         ];
+        if ($reservationSync !== null) {
+            $result['reservation_synced'] = (bool) ($reservationSync['synced'] ?? false);
+            if (!empty($reservationSync['error'])) {
+                $result['reservation_sync_error'] = $reservationSync['error'];
+            }
+        }
+
+        return $result;
     }
 
     public function getGt()
@@ -9370,13 +9823,13 @@ class Order extends SubiektObj
     {
         switch ((int) $state) {
             case 5:
-                return 'niezrealizowane (rezerwacja)';
+                return 'niezrealizowane (rezerwacja, legacy)';
             case 6:
                 return 'niezrealizowane';
             case 7:
-                return 'zrealizowane (rezerwacja)';
+                return 'z rezerwacją (otwarte / bez WZ lub zrealizowane z rez.)';
             case 8:
-                return 'zrealizowane';
+                return 'zrealizowane (po WZ)';
             default:
                 return 'status ' . (int) $state;
         }

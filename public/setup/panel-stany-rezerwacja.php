@@ -8,6 +8,7 @@ require_once dirname(__FILE__) . '/../init.php';
 use APISubiektGT\Config;
 use APISubiektGT\MSSql;
 use APISubiektGT\SubiektGT\Order;
+use APISubiektGT\SubiektGT\OrderComWriter;
 
 $cfg = new Config(CONFIG_INI_FILE);
 $cfg->load();
@@ -35,12 +36,19 @@ if ($warehouseId <= 0) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== '') {
+    // Panel celowo aktualizuje tw_Stan.st_StanRez w SQL — bez Sfery COM.
+    $prevComWriterOnly = OrderComWriter::comWritesOnly();
+    $prevComWriterFallback = OrderComWriter::allowSqlWriteFallback();
+    $prevMsSqlComOnly = MSSql::isComWritesOnly();
+    OrderComWriter::configure(false, true);
+    MSSql::setComWritesOnly(false, true);
     try {
         initDb($cfg);
         $symbols = $symbolInput !== '' ? array($symbolInput) : null;
 
         if ($action === 'scan') {
             $items = Order::findStockReservationMismatchesSql($warehouseId, $symbols);
+            $incompleteMag = Order::findIncompleteReservedOpenIloscMagSql($symbols);
             $result = array(
                 'state' => 'scan',
                 'warehouse_id' => $warehouseId,
@@ -50,12 +58,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== '') {
                 }, $items)),
                 'items' => array_slice($items, 0, 200),
                 'truncated' => count($items) > 200,
-                'message' => 'Rozjazd: st_StanRez w bazie ≠ suma pozostałości na otwartych ZK (status 5).',
+                'incomplete_ilosc_mag' => array(
+                    'count_positions' => count($incompleteMag),
+                    'items' => array_slice($incompleteMag, 0, 100),
+                    'message' => empty($incompleteMag)
+                        ? 'IloscMag OK (Informator Ilość powinna być widoczna).'
+                        : 'ZK status 7 z IloscMag < Ilosc — Informator pokazuje Ilość=0 mimo rezerwacji.',
+                ),
+                'message' => 'Rozjazd st_StanRez + kontrola IloscMag (Informator).',
             );
         } elseif ($action === 'preview_fix') {
-            $result = Order::syncStockReservationsFromOrdersSql($warehouseId, true, $symbols);
+            $result = array(
+                'st_stan_rez' => Order::syncStockReservationsFromOrdersSql($warehouseId, true, $symbols),
+                'ilosc_mag' => Order::repairIncompleteReservedOpenIloscMagSql($symbols, true),
+            );
         } elseif ($action === 'apply_fix') {
-            $result = Order::syncStockReservationsFromOrdersSql($warehouseId, false, $symbols);
+            $mag = Order::repairIncompleteReservedOpenIloscMagSql($symbols, false);
+            $rez = Order::syncStockReservationsFromOrdersSql($warehouseId, false, $symbols);
+            $result = array(
+                'state' => 'success',
+                'ilosc_mag' => $mag,
+                'st_stan_rez' => $rez,
+                'message' => 'Najpierw IloscMag=Ilosc (Informator), potem sync st_StanRez. Odśwież GT (F5).',
+            );
+        } elseif ($action === 'fix_ilosc_mag') {
+            $result = Order::repairIncompleteReservedOpenIloscMagSql($symbols, false);
         } else {
             throw new RuntimeException('Nieznana akcja.');
         }
@@ -64,6 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== '') {
             'state' => 'error',
             'message' => $e->getMessage(),
         );
+    } finally {
+        OrderComWriter::configure($prevComWriterOnly, $prevComWriterFallback);
+        MSSql::setComWritesOnly($prevMsSqlComOnly, false);
     }
 }
 
@@ -110,14 +140,15 @@ $jsonResult = $result !== null
 <body>
 <div class="wrap">
     <h1>Rezerwacje magazynowe — naprawa SQL</h1>
-    <p class="sub">Działa <strong>bez Sfery COM</strong>. Naprawia <code>tw_Stan.st_StanRez</code>, gdy ZK jest już domknięte (status 8), a rezerwacja została w stanie magazynowym.
+    <p class="sub">Działa <strong>bez Sfery COM</strong>. Naprawia <code>tw_Stan.st_StanRez</code>, gdy rezerwacja w stanie magazynowym nie zgadza się z ZK.
         <a href="panel-zk-wz.php">Panel ZK ↔ WZ</a></p>
 
     <div class="note">
-        <strong>Dlaczego zapis ZK w GT nie pomaga:</strong> rezerwacja siedzi w polu <code>st_StanRez</code> tabeli <code>tw_Stan</code>,
-        a nie w samym dokumencie ZK. Po domknięciu ZK przez API (SQL status 8) to pole często nie jest zerowane.
-        Ten panel ustawia <code>st_StanRez</code> = suma pozostałości z <strong>otwartych ZK (status 5)</strong>.
-        Dla MF0204 oczekiwane = 0 → rezerwacja spadnie z 49 do 0.
+        <strong>Jak liczone jest „oczekiwane”:</strong> suma z <strong>ZK status 7 bez WZ</strong>
+        (otwarte z rezerwacją — jak ręczne ZK w GT) oraz legacy <strong>status 5 bez WZ</strong>.
+        Po WZ status przechodzi na <strong>8</strong>.
+        Dodatkowo skan wykrywa <strong>IloscMag &lt; Ilosc</strong> — wtedy Informator pokazuje
+        <em>Ilość=0</em> mimo rezerwacji (ręczne ZK ma IloscMag=Ilosc).
     </div>
 
     <form method="post" class="card">
@@ -135,8 +166,10 @@ $jsonResult = $result !== null
         <div class="actions">
             <button type="submit" name="action" value="scan" class="btn-info">Skanuj rozjazdy</button>
             <button type="submit" name="action" value="preview_fix" class="btn-secondary">Podgląd naprawy</button>
+            <button type="submit" name="action" value="fix_ilosc_mag" class="btn-secondary"
+                    onclick="return confirm('Ustawić IloscMag=Ilosc na ZK status 7 bez WZ (Informator Ilość)?');">Napraw IloscMag (Informator)</button>
             <button type="submit" name="action" value="apply_fix" class="btn-ok"
-                    onclick="return confirm('Zsynchronizować st_StanRez z otwartymi ZK?');">Napraw rezerwacje (SQL)</button>
+                    onclick="return confirm('Najpierw IloscMag, potem st_StanRez?');">Napraw wszystko (SQL)</button>
         </div>
     </form>
 

@@ -71,6 +71,10 @@ class OrderComWriter
             return $subiektGt;
         }
 
+        if (!SubiektGT::hasInstance()) {
+            return false;
+        }
+
         $instance = SubiektGT::getInstance();
         if (method_exists($instance, 'getCom')) {
             $com = $instance->getCom();
@@ -364,7 +368,7 @@ class OrderComWriter
             return false;
         }
 
-        $targetStatus = $withReservation ? 5 : 6;
+        $targetStatus = $withReservation ? 7 : 6;
         $orderDoc = $loaded['doc'];
 
         try {
@@ -427,7 +431,7 @@ class OrderComWriter
             return false;
         }
 
-        $targetStatus = $withReservation ? 5 : 6;
+        $targetStatus = $withReservation ? 7 : 6;
         $orderDoc = $loaded['doc'];
         $row = Order::getOrderRowByIdSql($orderId);
         $currentEx = $row !== null ? (int) ($row['dok_StatusEx'] ?? 0) : 0;
@@ -1448,7 +1452,7 @@ class OrderComWriter
              FROM dok__Dokument d
              INNER JOIN dok_Pozycja p ON p.ob_DokHanId = d.dok_Id
              INNER JOIN tw__Towar t ON t.tw_Id = p.ob_TowId
-             WHERE d.dok_Typ = 16 AND d.dok_Status = 5 AND d.dok_Status >= 0"
+             WHERE d.dok_Typ = 16 AND d.dok_Status IN (5, 7) AND d.dok_Status >= 0"
         );
         if (is_array($rows)) {
             foreach ($rows as $row) {
@@ -1475,7 +1479,7 @@ class OrderComWriter
             'fixed_count' => $fixed,
             'remaining_count' => count($after),
             'remaining_items' => $after,
-            'message' => 'Zsynchronizowano rezerwacje COM dla otwartych ZK (status 5).',
+            'message' => 'Zsynchronizowano rezerwacje COM dla ZK status 7/5 (otwarte z rezerwacją).',
         );
     }
 
