@@ -269,12 +269,8 @@ class OrderComWriter
         $orderRef = $loaded['ref'];
 
         try {
-            if ($targetStatus === 8 || !$withReservation) {
-                $orderDoc->Rezerwacja = false;
-            } elseif ($withReservation) {
-                $orderDoc->Rezerwacja = true;
-            }
-
+            // Najpierw Status=8 + StatusEx, potem Rezerwacja=false w tym samym Zapisz.
+            // Kolejność odwrotna (samo Rezerwacja=false) w GT schodzi na status 6.
             self::trySetProperty(
                 $orderDoc,
                 array('Status', 'StatusDokumentu', 'StanDokumentu'),
@@ -284,6 +280,12 @@ class OrderComWriter
             $row = Order::getOrderRowByIdSql($orderId);
             $currentEx = $row !== null ? (int) ($row['dok_StatusEx'] ?? 0) : 0;
             self::setOrderStatusEx($orderDoc, ($currentEx & ~1) | 4);
+
+            if ($targetStatus === 8 || !$withReservation) {
+                $orderDoc->Rezerwacja = false;
+            } elseif ($withReservation) {
+                $orderDoc->Rezerwacja = true;
+            }
 
             if (!self::saveDocument($orderDoc, 'applyOrderFulfilledStatus:' . $orderRef)) {
                 return false;
@@ -422,7 +424,7 @@ class OrderComWriter
             return false;
         }
 
-        if (Order::orderHasActiveIssueLinksSql($orderId, $orderRef)) {
+        if (Order::orderHasValidIssueLinksSql($orderId, $orderRef)) {
             return false;
         }
 
@@ -586,9 +588,25 @@ class OrderComWriter
             return 0;
         }
 
-        $orderDoc = $loaded['doc'];
-        $orderRef = trim((string) ($orderRef !== null ? $orderRef : $loaded['ref']));
         $issueId = (int) self::tryGetProperty($issueDoc, array('Identyfikator', 'Id'), 0);
+        $orderRef = trim((string) ($orderRef !== null ? $orderRef : ''));
+        if ($orderRef === '' && $loaded !== null) {
+            $orderRef = trim((string) $loaded['ref']);
+        }
+        if ($issueId > 0 && $orderRef !== ''
+            && !Order::canLinkOrderHeaderToIssueSql($issueId, $orderId, $orderRef)) {
+            Logger::getInstance()->log(
+                'api',
+                'linkOrderHeaderToIssue: pominięto — WZ ' . $issueRef
+                    . ' należy do innego ZK (order_id=' . $orderId . ')',
+                __CLASS__ . '::' . __FUNCTION__,
+                __LINE__
+            );
+
+            return 0;
+        }
+
+        $orderDoc = $loaded['doc'];
         $linked = false;
 
         self::trySetProperty(
@@ -875,34 +893,55 @@ class OrderComWriter
             null
         );
 
-        if ($priceNet !== null) {
+        $issueQty = (float) $qty;
+        if ($issueQty <= 0.00001) {
+            return;
+        }
+
+        if ($priceNet !== null && (float) $priceNet > 0.00001) {
             self::trySetProperty(
                 $wzPos,
                 array('CenaNetto', 'CenaJednostkowaNetto', 'Cena'),
                 (float) $priceNet
             );
+            $lineNet = round((float) $priceNet * $issueQty, 4);
+            foreach (array(
+                array('WartoscNetto', 'WartoscNettoPoRabacie'),
+            ) as $pair) {
+                self::trySetProperty($wzPos, $pair, $lineNet);
+            }
         }
-        if ($priceGross !== null) {
+        if ($priceGross !== null && (float) $priceGross > 0.00001) {
             self::trySetProperty(
                 $wzPos,
                 array('CenaBrutto', 'CenaJednostkowaBrutto'),
                 (float) $priceGross
             );
+            $lineGross = round((float) $priceGross * $issueQty, 4);
+            foreach (array(
+                array('WartoscBrutto', 'WartoscBruttoPoRabacie'),
+            ) as $pair) {
+                self::trySetProperty($wzPos, $pair, $lineGross);
+            }
         }
 
-        $orderedQty = (float) self::tryGetProperty($zkPos, array('IloscJm', 'Ilosc'), 0.0);
-        if ($orderedQty <= 0.00001) {
-            $orderedQty = (float) $qty;
-        }
+        if (($priceNet === null || (float) $priceNet <= 0.00001)
+            && ($priceGross === null || (float) $priceGross <= 0.00001)
+        ) {
+            $orderedQty = (float) self::tryGetProperty($zkPos, array('IloscJm', 'Ilosc'), 0.0);
+            if ($orderedQty <= 0.00001) {
+                $orderedQty = $issueQty;
+            }
 
-        $ratio = min(1.0, (float) $qty / $orderedQty);
-        foreach (array(
-            array('WartoscNetto', 'WartoscNettoPoRabacie'),
-            array('WartoscBrutto', 'WartoscBruttoPoRabacie'),
-        ) as $pair) {
-            $value = self::tryGetProperty($zkPos, $pair, null);
-            if ($value !== null && (float) $value > 0.00001) {
-                self::trySetProperty($wzPos, $pair, round((float) $value * $ratio, 4));
+            $ratio = min(1.0, $issueQty / $orderedQty);
+            foreach (array(
+                array('WartoscNetto', 'WartoscNettoPoRabacie'),
+                array('WartoscBrutto', 'WartoscBruttoPoRabacie'),
+            ) as $pair) {
+                $value = self::tryGetProperty($zkPos, $pair, null);
+                if ($value !== null && (float) $value > 0.00001) {
+                    self::trySetProperty($wzPos, $pair, round((float) $value * $ratio, 4));
+                }
             }
         }
     }
@@ -1314,6 +1353,155 @@ class OrderComWriter
     }
 
     /**
+     * Czyści błędny nagłówek ZK→WZ (tylko ZK — bez zmian na cudzym WZ).
+     *
+     * @param mixed $subiektGt
+     * @param int $orderId
+     * @param string $orderRef
+     * @return bool
+     */
+    public static function clearStaleOrderHeaderIssueLink($subiektGt, $orderId, $orderRef)
+    {
+        $orderId = (int) $orderId;
+        $orderRef = trim((string) $orderRef);
+        if ($orderId <= 0 || $orderRef === '') {
+            return false;
+        }
+
+        $zk = Order::getOrderRowByIdSql($orderId);
+        if ($zk === null) {
+            return false;
+        }
+
+        $wzId = (int) ($zk['dok_DoDokId'] ?? 0);
+        if ($wzId <= 0) {
+            return false;
+        }
+
+        if (Order::isIssueDocumentIdLinkedToOrder($wzId, $orderId, $orderRef)) {
+            return false;
+        }
+
+        $subiektGt = self::resolveSubiektGt($subiektGt);
+        if ($subiektGt) {
+            $loaded = self::loadOrderDocument($subiektGt, $orderId, $orderRef);
+            if ($loaded !== null) {
+                $orderDoc = $loaded['doc'];
+                self::trySetProperty(
+                    $orderDoc,
+                    array(
+                        'DokumentDocelowy',
+                        'DokumentDo',
+                        'PowiazanyDokument',
+                        'RealizacjaDokumentu',
+                        'DokumentRealizacji',
+                    ),
+                    null
+                );
+                self::saveDocument($orderDoc, 'clearStaleOrderHeaderIssueLink:' . $orderRef);
+            }
+        }
+
+        return (bool) MSSql::withSqlWriteFallback(function () use ($orderId, $orderRef) {
+            return Order::clearStaleOrderHeaderIssueLinkSql($orderId, $orderRef);
+        });
+    }
+
+    /**
+     * Cofa fałszywe WZ.dok_NrPelnyOryg ustawione na to ZK (gdy pozycje WZ → inne ZK).
+     *
+     * @param mixed $subiektGt
+     * @param int $orderId
+     * @param string $orderRef
+     * @param bool $apply
+     * @return array
+     */
+    public static function repairPhantomIssueOrygClaimsForOrder($subiektGt, $orderId, $orderRef, $apply = true)
+    {
+        $orderId = (int) $orderId;
+        $orderRef = trim((string) $orderRef);
+        $invalid = Order::getInvalidIssueRefsForOrderSql($orderId, $orderRef);
+        $items = array();
+        $fixed = 0;
+
+        foreach ($invalid as $issueRef) {
+            $issueRef = trim((string) $issueRef);
+            if ($issueRef === '') {
+                continue;
+            }
+            $wz = Order::getIssueDocumentRowByRef($issueRef);
+            if ($wz === null) {
+                continue;
+            }
+            $orygBefore = trim((string) ($wz['dok_NrPelnyOryg'] ?? ''));
+            if (!Order::wzNrPelnyOrygMatchesOrderRef($orygBefore, $orderRef)) {
+                continue;
+            }
+
+            $wzId = (int) ($wz['dok_Id'] ?? 0);
+            $orygAfter = Order::resolveIssueOrygFromPositionOwnerSql($wzId);
+            $item = array(
+                'issue_ref' => $issueRef,
+                'wz_id' => $wzId,
+                'oryg_before' => $orygBefore,
+                'oryg_after' => $orygAfter,
+                'foreign_positions' => Order::issueHasForeignPositionLinksSql($wzId, $orderId),
+                'applied' => false,
+            );
+
+            if ($apply) {
+                $subiektGt = self::resolveSubiektGt($subiektGt);
+                if ($subiektGt) {
+                    $issueDoc = self::loadDocument($subiektGt, $issueRef);
+                    if ($issueDoc) {
+                        self::trySetProperty(
+                            $issueDoc,
+                            array('NumerPelnyOryginalny', 'NrPelnyOryg', 'NumerOryginalny'),
+                            $orygAfter
+                        );
+                        if (self::saveDocument($issueDoc, 'repairPhantomOryg:' . $issueRef)) {
+                            $item['applied'] = true;
+                            $fixed++;
+                        }
+                    }
+                }
+
+                if (!$item['applied']) {
+                    $sqlOk = MSSql::withSqlWriteFallback(function () use ($wzId, $orygAfter) {
+                        $safe = str_replace("'", "''", $orygAfter);
+                        MSSql::getInstance()->query(
+                            "UPDATE dok__Dokument
+                             SET dok_NrPelnyOryg = '{$safe}'
+                             WHERE dok_Id = {$wzId} AND dok_Typ = 11"
+                        );
+
+                        return true;
+                    });
+                    if ($sqlOk) {
+                        $item['applied'] = true;
+                        $fixed++;
+                    }
+                }
+            }
+
+            $items[] = $item;
+        }
+
+        return array(
+            'order_ref' => $orderRef,
+            'order_id' => $orderId,
+            'apply' => (bool) $apply,
+            'fixed' => $fixed,
+            'items' => $items,
+            'message' => $apply
+                ? ($fixed > 0
+                    ? 'Przywrócono NrPelnyOryg na ' . $fixed . ' WZ.'
+                    : 'Brak fałszywych oryg do naprawy.')
+                : 'Podgląd fałszywych oryg — do naprawy: ' . count($items) . '.',
+        );
+    }
+
+    /**
      * @param mixed $subiektGt
      * @param string $issueRef
      * @return bool
@@ -1377,16 +1565,12 @@ class OrderComWriter
         $row = Order::getOrderRowByIdSql($orderId);
         $state = $row !== null ? (int) ($row['dok_Status'] ?? 0) : 0;
         if (!Order::isOrderStatusOpen($state)) {
-            try {
-                $loaded['doc']->Rezerwacja = false;
-                self::saveDocument($loaded['doc'], 'syncStockReservations:close');
-            } catch (\Exception $e) {
-            }
-
+            // ZK już zrealizowane (status 8) — NIE wywołuj Zapisz z Rezerwacja=false:
+            // w tym GT osobny Zapisz potrafi zejść z 8 na 6 („Nie rezerwuj stanów”).
             return array(
                 'state' => 'closed_order',
                 'count' => 0,
-                'message' => 'ZK zamknięte — zwolniono rezerwację COM.',
+                'message' => 'ZK zamknięte (status ' . $state . ') — bez COM Zapisz rezerwacji.',
             );
         }
 

@@ -1918,6 +1918,110 @@ class Order extends SubiektObj
     }
 
     /**
+     * WZ powiązane z ZK po walidacji (pozycje / oryginał), bez „cudzych” dokumentów.
+     *
+     * @param int $orderId
+     * @param string $orderRef
+     * @return array<int, string>
+     */
+    public static function getValidIssueRefsForOrderSql($orderId, $orderRef)
+    {
+        $orderId = (int) $orderId;
+        $orderRef = trim((string) $orderRef);
+        $refs = array();
+        $seen = array();
+        if ($orderId <= 0 || $orderRef === '') {
+            return $refs;
+        }
+
+        foreach (self::getIssueRefsForOrder($orderRef, $orderId) as $ref) {
+            $ref = trim((string) $ref);
+            if ($ref === '' || isset($seen[$ref])) {
+                continue;
+            }
+            if (self::isIssueDocumentLinkedToOrder($ref, $orderId, $orderRef)) {
+                $seen[$ref] = true;
+                $refs[] = $ref;
+            }
+        }
+
+        $linkedRows = MSSql::getInstance()->query(
+            "SELECT DISTINCT wz.dok_NrPelny, wz.dok_Id
+             FROM dok_Pozycja zk
+             INNER JOIN dok_Pozycja wz_p ON wz_p.ob_DoId = zk.ob_Id
+             INNER JOIN dok__Dokument wz ON wz.dok_Id = wz_p.ob_DokMagId
+                 AND wz.dok_Typ = 11 AND wz.dok_Status >= 0
+             WHERE zk.ob_DokHanId = {$orderId}
+             ORDER BY wz.dok_Id ASC"
+        );
+        if (is_array($linkedRows)) {
+            foreach ($linkedRows as $row) {
+                $ref = trim((string) ($row['dok_NrPelny'] ?? ''));
+                if ($ref === '' || isset($seen[$ref])) {
+                    continue;
+                }
+                if (self::isIssueDocumentLinkedToOrder($ref, $orderId, $orderRef)) {
+                    $seen[$ref] = true;
+                    $refs[] = $ref;
+                }
+            }
+        }
+
+        return array_values(array_unique($refs));
+    }
+
+    /**
+     * WZ widoczne w wyszukiwaniu, ale nie należące do tego ZK (fałszywy NrPelnyOryg itd.).
+     *
+     * @param int $orderId
+     * @param string $orderRef
+     * @return array<int, string>
+     */
+    public static function getInvalidIssueRefsForOrderSql($orderId, $orderRef)
+    {
+        $invalid = array();
+        foreach (self::getIssueRefsForOrder($orderRef, (int) $orderId) as $ref) {
+            $ref = trim((string) $ref);
+            if ($ref === '') {
+                continue;
+            }
+            if (!self::isIssueDocumentLinkedToOrder($ref, (int) $orderId, $orderRef)) {
+                $invalid[] = $ref;
+            }
+        }
+
+        return array_values(array_unique($invalid));
+    }
+
+    /**
+     * Prawdziwy właściciel WZ wg pozycji ob_DoId.
+     *
+     * @param int $wzId
+     * @return string
+     */
+    public static function resolveIssueOrygFromPositionOwnerSql($wzId)
+    {
+        $wzId = (int) $wzId;
+        if ($wzId <= 0) {
+            return '';
+        }
+
+        $rows = MSSql::getInstance()->query(
+            "SELECT TOP 1 zk.dok_NrPelny
+             FROM dok_Pozycja wp
+             INNER JOIN dok_Pozycja zp ON zp.ob_Id = wp.ob_DoId
+             INNER JOIN dok__Dokument zk ON zk.dok_Id = zp.ob_DokHanId AND zk.dok_Typ = 16
+             WHERE wp.ob_DokMagId = {$wzId}
+               AND wp.ob_DoId > 0
+             ORDER BY wp.ob_Id"
+        );
+
+        return is_array($rows) && !empty($rows[0]['dok_NrPelny'])
+            ? trim((string) $rows[0]['dok_NrPelny'])
+            : '';
+    }
+
+    /**
      * WZ wskazane na nagłówku ZK (dok_DoDokId / dok_DoDokNrPelny).
      *
      * @param int $orderId dok_Id ZK
@@ -2059,12 +2163,45 @@ class Order extends SubiektObj
 
         $safeRef = str_replace("'", "''", $orderRef);
         $rows = MSSql::getInstance()->query(
-            "SELECT dok_Id, dok_NrPelny, dok_Status, dok_StatusEx, dok_DoDokId, dok_DoDokNrPelny
+            "SELECT dok_Id, dok_NrPelny, dok_NrPelnyOryg, dok_Status, dok_StatusEx, dok_DoDokId, dok_DoDokNrPelny
              FROM dok__Dokument
              WHERE dok_NrPelny = '{$safeRef}' AND dok_Typ = 16"
         );
 
         return is_array($rows) && !empty($rows) ? $rows[0] : null;
+    }
+
+    /**
+     * ZK o danym numerze oryginału (dok_NrPelnyOryg / NumerOryginalny z B2B).
+     *
+     * @param string $originalRef np. B2B-605/2026
+     * @param int|null $customerGtId opcjonalnie dok_PlatnikId (kh_Id)
+     * @return array[] dok_Id, dok_NrPelny, dok_NrPelnyOryg, dok_Status, dok_WartNetto, dok_WartBrutto
+     */
+    public static function findOrderRowsByOriginalRefSql($originalRef, $customerGtId = null)
+    {
+        $originalRef = trim((string) $originalRef);
+        if ($originalRef === '') {
+            return array();
+        }
+
+        $safeRef = str_replace("'", "''", $originalRef);
+        $customerFilter = '';
+        if ($customerGtId !== null && (int) $customerGtId > 0) {
+            $customerFilter = ' AND d.dok_PlatnikId = ' . (int) $customerGtId;
+        }
+
+        $rows = MSSql::getInstance()->query(
+            "SELECT d.dok_Id, d.dok_NrPelny, d.dok_NrPelnyOryg, d.dok_Status,
+                    d.dok_WartNetto, d.dok_WartBrutto
+             FROM dok__Dokument d
+             WHERE d.dok_Typ = 16 AND d.dok_Status >= 0
+               AND LTRIM(RTRIM(ISNULL(d.dok_NrPelnyOryg, ''))) = '{$safeRef}'
+               {$customerFilter}
+             ORDER BY d.dok_Id ASC"
+        );
+
+        return is_array($rows) ? $rows : array();
     }
 
     /**
@@ -2088,6 +2225,966 @@ class Order extends SubiektObj
         }
 
         return self::isIssueDocumentIdLinkedToOrder((int) $row['dok_Id'], $orderId, $orderRef, $row);
+    }
+
+    /**
+     * Czy WZ.dok_NrPelnyOryg wskazuje na to ZK (lub jest puste).
+     *
+     * @param string $oryg
+     * @param string $orderRef
+     * @return bool
+     */
+    public static function wzNrPelnyOrygMatchesOrderRef($oryg, $orderRef)
+    {
+        $oryg = trim((string) $oryg);
+        if ($oryg === '') {
+            return true;
+        }
+        foreach (self::orderRefVariants($orderRef) as $variant) {
+            if ($oryg === $variant) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Pozycje WZ powiązane ob_DoId z innym ZK niż $orderId.
+     *
+     * @param int $wzId
+     * @param int $orderId
+     * @return bool
+     */
+    public static function issueHasForeignPositionLinksSql($wzId, $orderId)
+    {
+        $wzId = (int) $wzId;
+        $orderId = (int) $orderId;
+        if ($wzId <= 0 || $orderId <= 0) {
+            return false;
+        }
+
+        $rows = MSSql::getInstance()->query(
+            "SELECT COUNT(*) AS cnt
+             FROM dok_Pozycja wz_p
+             INNER JOIN dok_Pozycja zk_p ON zk_p.ob_Id = wz_p.ob_DoId
+             WHERE wz_p.ob_DokMagId = {$wzId}
+               AND wz_p.ob_DoId > 0
+               AND zk_p.ob_DokHanId <> {$orderId}"
+        );
+
+        return is_array($rows) && !empty($rows) && (int) ($rows[0]['cnt'] ?? 0) > 0;
+    }
+
+    /**
+     * Inne ZK (nagłówek dok_DoDokId) wskazuje na ten WZ.
+     *
+     * @param int $wzId
+     * @param int $excludeOrderId ZK, które wolno traktować jako właściciela
+     * @return bool
+     */
+    public static function issueHasOtherOrderHeaderClaimSql($wzId, $excludeOrderId = 0)
+    {
+        $wzId = (int) $wzId;
+        $excludeOrderId = (int) $excludeOrderId;
+        if ($wzId <= 0) {
+            return false;
+        }
+
+        $sql = "SELECT COUNT(*) AS cnt
+                FROM dok__Dokument zk
+                WHERE zk.dok_Typ = 16
+                  AND zk.dok_DoDokId = {$wzId}";
+        if ($excludeOrderId > 0) {
+            $sql .= " AND zk.dok_Id <> {$excludeOrderId}";
+        }
+        $rows = MSSql::getInstance()->query($sql);
+
+        return is_array($rows) && !empty($rows) && (int) ($rows[0]['cnt'] ?? 0) > 0;
+    }
+
+    /**
+     * Czy można przypisać nagłówek ZK do WZ (bez przejęcia cudzego dokumentu).
+     *
+     * @param int $wzId
+     * @param int $orderId
+     * @param string $orderRef
+     * @param array|null $wzRow
+     * @return bool
+     */
+    public static function canLinkOrderHeaderToIssueSql($wzId, $orderId, $orderRef, $wzRow = null)
+    {
+        $wzId = (int) $wzId;
+        $orderId = (int) $orderId;
+        if ($wzId <= 0 || $orderId <= 0 || trim((string) $orderRef) === '') {
+            return false;
+        }
+
+        if (self::issueHasForeignPositionLinksSql($wzId, $orderId)) {
+            return false;
+        }
+
+        if (self::issueHasOtherOrderHeaderClaimSql($wzId, $orderId)) {
+            return false;
+        }
+
+        if ($wzRow === null) {
+            $rows = MSSql::getInstance()->query(
+                "SELECT dok_NrPelny, dok_NrPelnyOryg, dok_Status FROM dok__Dokument
+                 WHERE dok_Id = {$wzId} AND dok_Typ = 11"
+            );
+            $wzRow = is_array($rows) && !empty($rows) ? $rows[0] : null;
+        }
+        if (!is_array($wzRow)) {
+            return false;
+        }
+
+        $oryg = trim((string) ($wzRow['dok_NrPelnyOryg'] ?? ''));
+
+        return self::wzNrPelnyOrygMatchesOrderRef($oryg, $orderRef);
+    }
+
+    /**
+     * Usuwa błędny nagłówek ZK→WZ (gdy WZ należy do innego zamówienia).
+     *
+     * @param int $orderId
+     * @param string $orderRef
+     * @return bool czy wyczyszczono
+     */
+    public static function clearStaleOrderHeaderIssueLinkSql($orderId, $orderRef)
+    {
+        $orderId = (int) $orderId;
+        $orderRef = trim((string) $orderRef);
+        if ($orderId <= 0 || $orderRef === '') {
+            return false;
+        }
+
+        $zk = self::getOrderRowByIdSql($orderId);
+        if ($zk === null) {
+            return false;
+        }
+
+        $wzId = (int) ($zk['dok_DoDokId'] ?? 0);
+        if ($wzId <= 0) {
+            return false;
+        }
+
+        if (self::isIssueDocumentIdLinkedToOrder($wzId, $orderId, $orderRef)) {
+            return false;
+        }
+
+        MSSql::getInstance()->query(
+            "UPDATE dok__Dokument
+             SET dok_DoDokId = NULL,
+                 dok_DoDokNrPelny = '',
+                 dok_DoDokDataWyst = NULL
+             WHERE dok_Id = {$orderId} AND dok_Typ = 16"
+        );
+
+        return true;
+    }
+
+    /**
+     * Po odpięciu błędnego nagłówka WZ: cofa status 8 / ptaszek bez własnego WZ, żeby GT przyjął nowe WZ.
+     *
+     * @param int $orderId
+     * @param string $orderRef
+     * @param mixed|null $subiektGt
+     * @return array
+     */
+    public static function reopenOrderAfterStaleHeaderUnlink($orderId, $orderRef, $subiektGt = null)
+    {
+        $orderId = (int) $orderId;
+        $orderRef = trim((string) $orderRef);
+        if ($orderId <= 0 || $orderRef === '') {
+            return array(
+                'state' => 'error',
+                'reopened' => false,
+                'message' => 'Brak order_id / order_ref.',
+            );
+        }
+
+        $zk = self::getOrderRowByIdSql($orderId);
+        if ($zk === null) {
+            return array(
+                'state' => 'error',
+                'reopened' => false,
+                'message' => 'Nie znaleziono ZK.',
+            );
+        }
+
+        $statusBefore = (int) ($zk['dok_Status'] ?? 0);
+        $statusExBefore = (int) ($zk['dok_StatusEx'] ?? 0);
+        $validIssues = self::getValidIssueRefsForOrderSql($orderId, $orderRef);
+        $hasIssueLinks = !empty($validIssues);
+        $coverage = self::isOrderFullyCoveredByLinkedIssuesSql($orderId, $orderRef);
+
+        if ($hasIssueLinks && $coverage) {
+            return array(
+                'state' => 'noop',
+                'reopened' => false,
+                'order_ref' => $orderRef,
+                'zk_status_before' => $statusBefore,
+                'status_ex_before' => $statusExBefore,
+                'valid_issue_refs' => $validIssues,
+                'issue_coverage_complete' => true,
+                'message' => 'ZK ma już ' . implode(', ', $validIssues)
+                    . ' — towary są w pełni zrealizowane (ptaszek w GT jest poprawny). '
+                    . 'Nowe WZ możliwe dopiero po odpięciu tego WZ (panel ZK↔WZ). '
+                    . 'Jeśli na liście brak kolumny „Dokument powiąz”, użyj „Powiąż nagłówek do WZ”.',
+            );
+        }
+
+        $needsReopen = self::isOrderStuckWithoutIssueSql($orderId, $orderRef)
+            || (self::isOrderStatusFulfilled($statusBefore) && empty($validIssues))
+            || (($statusExBefore & 4) !== 0 && !$coverage && empty($validIssues));
+
+        if (!$needsReopen) {
+            return array(
+                'state' => 'noop',
+                'reopened' => false,
+                'order_ref' => $orderRef,
+                'zk_status_before' => $statusBefore,
+                'status_ex_before' => $statusExBefore,
+                'message' => 'Status ZK pozwala na wystawienie WZ — bez zmian.',
+            );
+        }
+
+        $hadReservation = in_array($statusBefore, array(5, 7, 8), true)
+            || (int) ($zk['dok_ZrealizowaneZRezerwacja'] ?? 0) === 1;
+
+        $reopened = self::reopenOrderAfterIssueRemovalSql($orderId, $orderRef, $hadReservation);
+        $positionsReset = 0;
+        if (self::isOrderStatusFulfilled($statusBefore) || ($statusExBefore & 4) !== 0) {
+            $positionsReset = self::resetOrderPositionIssuedQtyWithoutIssueSql($orderId);
+        }
+
+        if ($subiektGt && $reopened) {
+            $order = self::loadExistingByRefVariants($subiektGt, array('order_ref' => $orderRef));
+            if ($order !== null && $order->isExists()) {
+                try {
+                    $order->prepareOrderForIssueFromApi();
+                } catch (\Exception $e) {
+                    Logger::getInstance()->log(
+                        'api',
+                        'reopenOrderAfterStaleHeaderUnlink: prepareOrderForIssueFromApi '
+                            . $orderRef . ': ' . $e->getMessage(),
+                        __CLASS__ . '::reopenOrderAfterStaleHeaderUnlink',
+                        __LINE__
+                    );
+                }
+            }
+        }
+
+        $zkAfter = self::getOrderRowByIdSql($orderId);
+        $statusAfter = $zkAfter !== null ? (int) ($zkAfter['dok_Status'] ?? 0) : $statusBefore;
+        $statusExAfter = $zkAfter !== null ? (int) ($zkAfter['dok_StatusEx'] ?? 0) : $statusExBefore;
+
+        return array(
+            'state' => $reopened ? 'success' : 'partial',
+            'reopened' => $reopened,
+            'order_ref' => $orderRef,
+            'order_id' => $orderId,
+            'zk_status_before' => $statusBefore,
+            'zk_status_after' => $statusAfter,
+            'status_ex_before' => $statusExBefore,
+            'status_ex_after' => $statusExAfter,
+            'positions_reset' => $positionsReset,
+            'message' => $reopened
+                ? 'ZK otwarte do nowego WZ (status ' . $statusBefore . '→' . $statusAfter . '). Odśwież GT (F5).'
+                : 'Częściowa naprawa statusu — sprawdź ZK w GT lub użyj przycisku „Otwórz ZK do WZ”.',
+        );
+    }
+
+    /**
+     * Skan ZK z błędnym nagłówkiem ZK→WZ (cudzy WZ / pozycje innego ZK).
+     *
+     * @param int $month
+     * @param int $year
+     * @param array{only_stale?:bool, customer_id?:int} $options
+     * @return array
+     */
+    public static function scanStaleOrderIssueHeaderLinksMonthSql($month, $year, array $options = array())
+    {
+        $month = (int) $month;
+        $year = (int) $year;
+        if ($month < 1 || $month > 12 || $year < 2000) {
+            return array(
+                'state' => 'error',
+                'message' => 'Podaj poprawny miesiąc i rok.',
+            );
+        }
+
+        $onlyStale = !empty($options['only_stale']);
+        $customerId = isset($options['customer_id']) ? (int) $options['customer_id'] : 0;
+        $from = sprintf('%04d-%02d-01', $year, $month);
+        $toMonth = $month === 12 ? 1 : $month + 1;
+        $toYear = $month === 12 ? $year + 1 : $year;
+        $to = sprintf('%04d-%02d-01', $toYear, $toMonth);
+
+        $customerFilter = $customerId > 0 ? " AND zk.dok_PlatnikId = {$customerId}" : '';
+        $rows = MSSql::getInstance()->query(
+            "SELECT zk.dok_Id, zk.dok_NrPelny, zk.dok_NrPelnyOryg, zk.dok_Status, zk.dok_StatusEx,
+                    zk.dok_PlatnikId, zk.dok_WartNetto, zk.dok_DoDokId, zk.dok_DoDokNrPelny,
+                    wz.dok_Id AS wz_id, wz.dok_NrPelny AS wz_nr, wz.dok_NrPelnyOryg AS wz_oryg,
+                    wz.dok_WartNetto AS wz_netto, wz.dok_Status AS wz_status,
+                    k.kh_Symbol
+             FROM dok__Dokument zk
+             INNER JOIN dok__Dokument wz ON wz.dok_Id = zk.dok_DoDokId AND wz.dok_Typ = 11
+             LEFT JOIN kh__Kontrahent k ON k.kh_Id = zk.dok_PlatnikId
+             WHERE zk.dok_Typ = 16
+               AND zk.dok_Status >= 0
+               AND zk.dok_DataWyst >= '{$from}' AND zk.dok_DataWyst < '{$to}'
+               AND zk.dok_DoDokId IS NOT NULL AND zk.dok_DoDokId > 0
+               {$customerFilter}
+             ORDER BY zk.dok_Id ASC"
+        );
+
+        $items = array();
+        $summary = array(
+            'total_with_header' => 0,
+            'stale' => 0,
+            'ok' => 0,
+            'foreign_positions' => 0,
+            'other_header_claim' => 0,
+            'oryg_mismatch' => 0,
+        );
+
+        if (!is_array($rows)) {
+            $rows = array();
+        }
+
+        foreach ($rows as $row) {
+            $orderId = (int) ($row['dok_Id'] ?? 0);
+            $orderRef = trim((string) ($row['dok_NrPelny'] ?? ''));
+            $wzId = (int) ($row['wz_id'] ?? $row['dok_DoDokId'] ?? 0);
+            if ($orderId <= 0 || $orderRef === '' || $wzId <= 0) {
+                continue;
+            }
+
+            $summary['total_with_header']++;
+            $wzRow = array(
+                'dok_Id' => $wzId,
+                'dok_NrPelny' => trim((string) ($row['wz_nr'] ?? '')),
+                'dok_NrPelnyOryg' => trim((string) ($row['wz_oryg'] ?? '')),
+                'dok_Status' => (int) ($row['wz_status'] ?? -1),
+            );
+
+            $foreignPos = self::issueHasForeignPositionLinksSql($wzId, $orderId);
+            $otherClaim = self::issueHasOtherOrderHeaderClaimSql($wzId, $orderId);
+            $orygOk = self::wzNrPelnyOrygMatchesOrderRef(
+                (string) ($wzRow['dok_NrPelnyOryg'] ?? ''),
+                $orderRef
+            );
+            $linkedOk = self::isIssueDocumentIdLinkedToOrder($wzId, $orderId, $orderRef, $wzRow);
+            $stale = !$linkedOk;
+
+            if ($foreignPos) {
+                $summary['foreign_positions']++;
+            }
+            if ($otherClaim) {
+                $summary['other_header_claim']++;
+            }
+            if (!$orygOk) {
+                $summary['oryg_mismatch']++;
+            }
+
+            if ($stale) {
+                $summary['stale']++;
+            } else {
+                $summary['ok']++;
+            }
+
+            if ($onlyStale && !$stale) {
+                continue;
+            }
+
+            $ownerZk = '';
+            $ownerRows = MSSql::getInstance()->query(
+                "SELECT TOP 1 zk2.dok_NrPelny
+                 FROM dok_Pozycja wp
+                 INNER JOIN dok_Pozycja zp ON zp.ob_Id = wp.ob_DoId
+                 INNER JOIN dok__Dokument zk2 ON zk2.dok_Id = zp.ob_DokHanId AND zk2.dok_Typ = 16
+                 WHERE wp.ob_DokMagId = {$wzId} AND wp.ob_DoId > 0
+                 ORDER BY wp.ob_Id"
+            );
+            if (is_array($ownerRows) && !empty($ownerRows[0]['dok_NrPelny'])) {
+                $ownerZk = (string) $ownerRows[0]['dok_NrPelny'];
+            } elseif (trim((string) ($wzRow['dok_NrPelnyOryg'] ?? '')) !== '') {
+                $ownerZk = trim((string) $wzRow['dok_NrPelnyOryg']);
+            }
+
+            $items[] = array(
+                'order_id' => $orderId,
+                'order_ref' => $orderRef,
+                'order_oryg' => trim((string) ($row['dok_NrPelnyOryg'] ?? '')),
+                'order_status' => (int) ($row['dok_Status'] ?? 0),
+                'order_status_label' => self::getOrderStatusLabel((int) ($row['dok_Status'] ?? 0)),
+                'order_netto' => (float) ($row['dok_WartNetto'] ?? 0),
+                'customer_id' => (int) ($row['dok_PlatnikId'] ?? 0),
+                'customer_symbol' => trim((string) ($row['kh_Symbol'] ?? '')),
+                'issue_ref' => trim((string) ($row['wz_nr'] ?? $row['dok_DoDokNrPelny'] ?? '')),
+                'issue_id' => $wzId,
+                'issue_oryg' => trim((string) ($wzRow['dok_NrPelnyOryg'] ?? '')),
+                'issue_netto' => (float) ($row['wz_netto'] ?? 0),
+                'owner_zk' => $ownerZk,
+                'stale' => $stale,
+                'foreign_positions' => $foreignPos,
+                'other_header_claim' => $otherClaim,
+                'oryg_mismatch' => !$orygOk,
+                'flags' => array_values(array_filter(array(
+                    $stale ? 'błędny nagłówek' : null,
+                    $foreignPos ? 'pozycje innego ZK' : null,
+                    $otherClaim ? 'WZ też na innych ZK' : null,
+                    !$orygOk ? 'NrPelnyOryg ≠ ZK' : null,
+                ))),
+            );
+        }
+
+        return array(
+            'state' => 'success',
+            'month' => $month,
+            'year' => $year,
+            'summary' => $summary,
+            'orders' => $items,
+            'message' => 'ZK z nagłówkiem WZ: ' . $summary['total_with_header']
+                . ', błędnych: ' . $summary['stale'] . '.',
+        );
+    }
+
+    /**
+     * Diagnostyka pojedynczego ZK pod kątem błędnego nagłówka → WZ.
+     *
+     * @param string $orderRef
+     * @return array
+     */
+    public static function diagnoseStaleOrderIssueHeaderLinkSql($orderRef)
+    {
+        $orderRef = trim((string) $orderRef);
+        $zk = self::getOrderRowByRefSql($orderRef);
+        if ($zk === null) {
+            return array(
+                'state' => 'error',
+                'message' => 'Nie znaleziono ZK: ' . $orderRef,
+            );
+        }
+
+        $orderId = (int) ($zk['dok_Id'] ?? 0);
+        $wzId = (int) ($zk['dok_DoDokId'] ?? 0);
+        $issueRef = trim((string) ($zk['dok_DoDokNrPelny'] ?? ''));
+        $ownIssues = self::getIssueRefsForOrder($orderRef, $orderId);
+        $validIssues = self::getValidIssueRefsForOrderSql($orderId, $orderRef);
+        $invalidIssues = self::getInvalidIssueRefsForOrderSql($orderId, $orderRef);
+        $coverageComplete = self::isOrderFullyCoveredByLinkedIssuesSql($orderId, $orderRef);
+        $statusEx = (int) ($zk['dok_StatusEx'] ?? 0);
+        $orderStatus = (int) ($zk['dok_Status'] ?? 0);
+
+        $out = array(
+            'state' => 'success',
+            'order_ref' => $orderRef,
+            'order_id' => $orderId,
+            'order_status' => $orderStatus,
+            'order_status_label' => self::getOrderStatusLabel($orderStatus),
+            'status_ex' => $statusEx,
+            'status_ex_label' => self::getOrderStatusExLabel($statusEx),
+            'header_issue_ref' => $issueRef,
+            'header_issue_id' => $wzId,
+            'own_issue_refs' => $ownIssues,
+            'valid_issue_refs' => $validIssues,
+            'invalid_issue_refs' => $invalidIssues,
+            'issue_coverage_complete' => $coverageComplete,
+            'stale' => false,
+            'can_clear' => false,
+            'can_link_header' => false,
+            'can_repair_phantom_oryg' => false,
+            'can_reopen_for_wz' => false,
+            'issues' => array(),
+            'message' => '',
+        );
+
+        if (!empty($invalidIssues)) {
+            $phantomDetails = array();
+            foreach ($invalidIssues as $badRef) {
+                $wz = self::getIssueDocumentRowByRef($badRef);
+                $wzIdBad = $wz !== null ? (int) ($wz['dok_Id'] ?? 0) : 0;
+                $phantomDetails[] = array(
+                    'issue_ref' => $badRef,
+                    'wz_oryg' => $wz !== null ? trim((string) ($wz['dok_NrPelnyOryg'] ?? '')) : '',
+                    'owner_from_positions' => $wzIdBad > 0
+                        ? self::resolveIssueOrygFromPositionOwnerSql($wzIdBad)
+                        : '',
+                    'foreign_positions' => $wzIdBad > 0
+                        ? self::issueHasForeignPositionLinksSql($wzIdBad, $orderId)
+                        : false,
+                );
+            }
+            $out['phantom_issue_refs'] = $phantomDetails;
+            $out['can_repair_phantom_oryg'] = true;
+            $out['issues'][] = 'Fałszywe WZ (NrPelnyOryg wskazuje to ZK, pozycje → inne ZK): '
+                . implode(', ', $invalidIssues);
+        }
+
+        if ($wzId <= 0 && $issueRef === '') {
+            if (!empty($validIssues) && $coverageComplete) {
+                $out['can_link_header'] = true;
+                $out['suggested_header_issue'] = $validIssues[count($validIssues) - 1];
+                $out['message'] = 'Brak nagłówka na liście ZK, ale istnieje własne '
+                    . implode(', ', $validIssues)
+                    . ' (pełna realizacja towaru). Ptassek „zrealizowane” jest OK. '
+                    . 'Aby wystawić kolejne WZ, najpierw odepnij to WZ w panelu ZK↔WZ.';
+            } elseif (!empty($validIssues)) {
+                $out['can_link_header'] = true;
+                $out['suggested_header_issue'] = $validIssues[count($validIssues) - 1];
+                $out['message'] = 'Brak nagłówka WZ — są powiązane dokumenty: '
+                    . implode(', ', $validIssues) . '.';
+            } elseif (!empty($invalidIssues)) {
+                $out['stale'] = true;
+                $out['can_reopen_for_wz'] = self::isOrderStatusFulfilled($orderStatus)
+                    || self::isOrderStuckWithoutIssueSql($orderId, $orderRef)
+                    || (($statusEx & 4) !== 0);
+                $out['message'] = 'Brak własnego WZ — w wyszukiwaniu widać błędne '
+                    . implode(', ', $invalidIssues)
+                    . ' (fałszywy NrPelnyOryg). Użyj „Napraw fałszywe oryg WZ”, potem '
+                    . ($out['can_reopen_for_wz'] ? '„Otwórz ZK do WZ”.' : 'wystaw WZ.');
+            } else {
+                $out['message'] = 'ZK nie ma nagłówka ani WZ — można wystawić nowe WZ.';
+            }
+
+            return $out;
+        }
+
+        $wzRow = $wzId > 0
+            ? MSSql::getInstance()->query(
+                "SELECT dok_Id, dok_NrPelny, dok_NrPelnyOryg, dok_Status, dok_WartNetto
+                 FROM dok__Dokument WHERE dok_Id = {$wzId}"
+            )
+            : null;
+        $wz = is_array($wzRow) && !empty($wzRow) ? $wzRow[0] : null;
+        if ($wz === null && $issueRef !== '') {
+            $wz = self::getIssueDocumentRowByRef($issueRef);
+            $wzId = $wz !== null ? (int) ($wz['dok_Id'] ?? 0) : 0;
+        }
+
+        if ($wz === null) {
+            $out['stale'] = true;
+            $out['can_clear'] = true;
+            $out['issues'][] = 'Nagłówek ZK wskazuje nieistniejący WZ.';
+            $out['message'] = 'Błędny nagłówek — można wyczyścić.';
+            return $out;
+        }
+
+        $out['issue'] = array(
+            'dok_Id' => $wzId,
+            'dok_NrPelny' => trim((string) ($wz['dok_NrPelny'] ?? '')),
+            'dok_NrPelnyOryg' => trim((string) ($wz['dok_NrPelnyOryg'] ?? '')),
+            'dok_WartNetto' => (float) ($wz['dok_WartNetto'] ?? 0),
+        );
+
+        $linkedOk = self::isIssueDocumentIdLinkedToOrder($wzId, $orderId, $orderRef, $wz);
+        $out['stale'] = !$linkedOk;
+        $out['can_clear'] = !$linkedOk;
+        $out['foreign_positions'] = self::issueHasForeignPositionLinksSql($wzId, $orderId);
+        $out['other_header_claim'] = self::issueHasOtherOrderHeaderClaimSql($wzId, $orderId);
+        $out['oryg_mismatch'] = !self::wzNrPelnyOrygMatchesOrderRef(
+            (string) ($wz['dok_NrPelnyOryg'] ?? ''),
+            $orderRef
+        );
+
+        if ($out['foreign_positions']) {
+            $out['issues'][] = 'Pozycje WZ wskazują na inne ZK (ob_DoId).';
+        }
+        if ($out['other_header_claim']) {
+            $out['issues'][] = 'Inne ZK też mają ten WZ w nagłówku.';
+        }
+        if ($out['oryg_mismatch']) {
+            $out['issues'][] = 'WZ.dok_NrPelnyOryg ≠ ten ZK.';
+        }
+        if ($linkedOk) {
+            $out['message'] = 'Nagłówek ZK→WZ wygląda na poprawny.';
+        } else {
+            $out['message'] = 'Błędny nagłówek ZK→WZ — można odpiąć i wystawić własne WZ przez Sferę.';
+        }
+
+        return $out;
+    }
+
+    /**
+     * Naprawa fałszywego WZ.dok_NrPelnyOryg (API przypisało cudze WZ do ZK).
+     *
+     * @param string $orderRef
+     * @param bool $apply
+     * @param mixed|null $subiektGt
+     * @return array
+     */
+    public static function repairPhantomIssueOrygClaimsForOrderSql($orderRef, $apply = false, $subiektGt = null)
+    {
+        $orderRef = trim((string) $orderRef);
+        $zk = self::getOrderRowByRefSql($orderRef);
+        if ($zk === null) {
+            return array(
+                'state' => 'error',
+                'message' => 'Nie znaleziono ZK: ' . $orderRef,
+            );
+        }
+
+        $orderId = (int) ($zk['dok_Id'] ?? 0);
+        $result = OrderComWriter::repairPhantomIssueOrygClaimsForOrder(
+            $subiektGt,
+            $orderId,
+            $orderRef,
+            $apply
+        );
+        $result['state'] = 'success';
+        $result['diagnosis_after'] = self::diagnoseStaleOrderIssueHeaderLinkSql($orderRef);
+
+        if ($apply && (int) ($result['fixed'] ?? 0) > 0) {
+            $reopen = self::reopenOrderAfterStaleHeaderUnlink($orderId, $orderRef, $subiektGt);
+            $result['reopen'] = $reopen;
+            if (!empty($reopen['reopened'])) {
+                $result['message'] .= ' ' . (string) ($reopen['message'] ?? '');
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Ustawia nagłówek ZK na własne WZ (gdy pozycje są OK, ale kolumna listy jest pusta).
+     *
+     * @param string $orderRef
+     * @param mixed|null $subiektGt
+     * @param string|null $issueRef
+     * @return array
+     */
+    public static function linkOwnIssueHeaderForOrder($orderRef, $subiektGt = null, $issueRef = null)
+    {
+        $orderRef = trim((string) $orderRef);
+        $diag = self::diagnoseStaleOrderIssueHeaderLinkSql($orderRef);
+        if (($diag['state'] ?? '') === 'error') {
+            return $diag;
+        }
+
+        $orderId = (int) ($diag['order_id'] ?? 0);
+        $refs = array();
+        if ($issueRef !== null && trim((string) $issueRef) !== '') {
+            $refs[] = trim((string) $issueRef);
+        } elseif (!empty($diag['valid_issue_refs']) && is_array($diag['valid_issue_refs'])) {
+            $refs = $diag['valid_issue_refs'];
+        }
+        $refs = array_values(array_unique(array_filter(array_map('trim', $refs))));
+        if (empty($refs)) {
+            return array(
+                'state' => 'error',
+                'order_ref' => $orderRef,
+                'message' => 'Brak własnego WZ do powiązania na nagłówku ZK.',
+            );
+        }
+
+        $pick = $refs[count($refs) - 1];
+        $linked = self::linkOrderHeaderToIssueSql($orderId, array($pick), $subiektGt, $orderRef);
+        $after = self::diagnoseStaleOrderIssueHeaderLinkSql($orderRef);
+
+        return array(
+            'state' => $linked > 0 ? 'success' : 'error',
+            'order_ref' => $orderRef,
+            'issue_ref' => $pick,
+            'linked' => $linked,
+            'before' => $diag,
+            'after' => $after,
+            'message' => $linked > 0
+                ? 'Powiązano nagłówek ZK z ' . $pick . '. Odśwież listę ZK w GT (F5).'
+                : 'Nie udało się ustawić nagłówka ZK→WZ (sprawdź Sferę COM).',
+        );
+    }
+
+    /**
+     * Odpina błędny nagłówek ZK→WZ (podgląd / apply).
+     *
+     * @param string $orderRef
+     * @param bool $apply
+     * @param mixed|null $subiektGt połączenie Sfery (wymagane przy use_com_writes_only)
+     * @return array
+     */
+    public static function repairStaleOrderIssueHeaderLinkSql($orderRef, $apply = false, $subiektGt = null)
+    {
+        $diag = self::diagnoseStaleOrderIssueHeaderLinkSql($orderRef);
+        if (($diag['state'] ?? '') === 'error') {
+            return $diag;
+        }
+
+        if (empty($diag['stale']) || empty($diag['can_clear'])) {
+            return array_merge($diag, array(
+                'state' => 'noop',
+                'message' => 'Brak błędnego nagłówka do odpięcia.',
+            ));
+        }
+
+        if (!$apply) {
+            return array_merge($diag, array(
+                'state' => 'preview',
+                'would_clear' => true,
+                'message' => 'Podgląd — odepnę ' . ($diag['header_issue_ref'] ?? '?')
+                    . ' od ' . $orderRef . '.',
+            ));
+        }
+
+        $orderId = (int) ($diag['order_id'] ?? 0);
+        $ref = (string) ($diag['order_ref'] ?? $orderRef);
+        $useCom = MSSql::isComWritesOnly();
+        if ($useCom) {
+            if (!$subiektGt) {
+                return array(
+                    'state' => 'error',
+                    'order_ref' => $orderRef,
+                    'message' => 'Odpięcie nagłówka wymaga Sfery COM (SQL write jest wyłączony).',
+                    'error' => 'COM_REQUIRED',
+                );
+            }
+            $cleared = OrderComWriter::clearStaleOrderHeaderIssueLink($subiektGt, $orderId, $ref);
+        } else {
+            $cleared = self::clearStaleOrderHeaderIssueLinkSql($orderId, $ref);
+        }
+
+        $reopen = null;
+        if ($cleared) {
+            $phantom = self::repairPhantomIssueOrygClaimsForOrderSql($ref, true, $subiektGt);
+            $reopen = isset($phantom['reopen'])
+                ? $phantom['reopen']
+                : self::reopenOrderAfterStaleHeaderUnlink($orderId, $ref, $subiektGt);
+            if (($phantom['fixed'] ?? 0) > 0) {
+                $cleared = true;
+            }
+        }
+
+        $after = self::diagnoseStaleOrderIssueHeaderLinkSql($orderRef);
+
+        $msg = 'Nie udało się odpiąć nagłówka ZK→WZ.';
+        if ($cleared) {
+            $msg = ($useCom
+                ? 'Odpięto błędny WZ od ZK (Sfera).'
+                : 'Odpięto błędny WZ od ZK.');
+            if ($reopen !== null && !empty($reopen['reopened'])) {
+                $msg .= ' ' . (string) ($reopen['message'] ?? '');
+            } elseif ($reopen !== null && ($reopen['state'] ?? '') === 'noop') {
+                $msg .= ' ' . (string) ($reopen['message'] ?? '');
+            } else {
+                $msg .= ' Zamknij dokumenty w GT (F5), potem wystaw własne WZ.';
+            }
+        }
+
+        return array(
+            'state' => $cleared ? 'success' : 'error',
+            'order_ref' => $orderRef,
+            'cleared' => $cleared,
+            'via' => $useCom ? 'com' : 'sql',
+            'reopen' => $reopen,
+            'before' => $diag,
+            'after' => $after,
+            'message' => $msg,
+        );
+    }
+
+    /**
+     * Masowa naprawa błędnych nagłówków ZK→WZ w miesiącu.
+     *
+     * @param int $month
+     * @param int $year
+     * @param bool $apply
+     * @param array $options
+     * @return array
+     */
+    public static function batchRepairStaleOrderIssueHeaderLinksMonthSql(
+        $month,
+        $year,
+        $apply = false,
+        array $options = array(),
+        $subiektGt = null
+    )
+    {
+        $scan = self::scanStaleOrderIssueHeaderLinksMonthSql(
+            $month,
+            $year,
+            array_merge($options, array('only_stale' => true))
+        );
+        if (($scan['state'] ?? '') !== 'success') {
+            return $scan;
+        }
+
+        $targets = isset($scan['orders']) && is_array($scan['orders']) ? $scan['orders'] : array();
+        if (empty($targets)) {
+            return array(
+                'state' => 'noop',
+                'month' => (int) $month,
+                'year' => (int) $year,
+                'message' => 'Brak błędnych nagłówków ZK→WZ w tym miesiącu.',
+                'summary' => $scan['summary'] ?? array(),
+            );
+        }
+
+        if (!$apply) {
+            return array(
+                'state' => 'preview',
+                'month' => (int) $month,
+                'year' => (int) $year,
+                'would_repair' => count($targets),
+                'orders' => $targets,
+                'summary' => $scan['summary'] ?? array(),
+                'message' => 'Podgląd — do odpięcia: ' . count($targets) . ' ZK.',
+            );
+        }
+
+        $results = array();
+        $ok = 0;
+        $fail = 0;
+        foreach ($targets as $item) {
+            $ref = trim((string) ($item['order_ref'] ?? ''));
+            if ($ref === '') {
+                continue;
+            }
+            $one = self::repairStaleOrderIssueHeaderLinkSql($ref, true, $subiektGt);
+            $results[] = $one;
+            if (($one['state'] ?? '') === 'success') {
+                $ok++;
+            } else {
+                $fail++;
+            }
+        }
+
+        $after = self::scanStaleOrderIssueHeaderLinksMonthSql(
+            $month,
+            $year,
+            array_merge($options, array('only_stale' => true))
+        );
+
+        return array(
+            'state' => 'success',
+            'month' => (int) $month,
+            'year' => (int) $year,
+            'via' => MSSql::isComWritesOnly() ? 'com' : 'sql',
+            'repaired' => $ok,
+            'failed' => $fail,
+            'results' => $results,
+            'summary_before' => $scan['summary'] ?? array(),
+            'summary_after' => $after['summary'] ?? array(),
+            'orders_remaining' => $after['orders'] ?? array(),
+            'message' => 'Odpięto ' . $ok . ' ZK'
+                . ($fail > 0 ? ', błędów: ' . $fail : '')
+                . '. Pozostało błędnych: ' . (int) ($after['summary']['stale'] ?? 0) . '.',
+        );
+    }
+
+    /**
+     * Po odpięciu błędnego WZ — wystaw własne WZ przez Sferę COM.
+     *
+     * @param mixed $subiektGt
+     * @param string $orderRef
+     * @param array $options close_order, full_realization, create_wz
+     * @return array
+     */
+    public static function repairStaleOrderIssueHeaderAndCreateWz(
+        $subiektGt,
+        $orderRef,
+        array $options = array()
+    )
+    {
+        $orderRef = trim((string) $orderRef);
+        $createWz = !array_key_exists('create_wz', $options) || !empty($options['create_wz']);
+        $closeOrder = !array_key_exists('close_order', $options) || !empty($options['close_order']);
+        $fullRealization = !empty($options['full_realization'])
+            || self::isFullRealizationRequested($options, true);
+
+        $unlink = self::repairStaleOrderIssueHeaderLinkSql($orderRef, true, $subiektGt);
+        if (!in_array(($unlink['state'] ?? ''), array('success', 'noop'), true)) {
+            return $unlink;
+        }
+
+        if (($unlink['state'] ?? '') === 'noop') {
+            $zkRow = self::getOrderRowByRefSql($orderRef);
+            $reopenOnly = self::reopenOrderAfterStaleHeaderUnlink(
+                (int) ($zkRow['dok_Id'] ?? 0),
+                $orderRef,
+                $subiektGt
+            );
+            if (!empty($reopenOnly['reopened'])) {
+                $unlink['reopen'] = $reopenOnly;
+                $unlink['message'] = (string) ($reopenOnly['message'] ?? '');
+            }
+        }
+
+        $payload = array(
+            'state' => 'success',
+            'order_ref' => $orderRef,
+            'unlink' => $unlink,
+            'wz' => null,
+            'message' => (string) ($unlink['message'] ?? ''),
+        );
+
+        if (!$createWz) {
+            return $payload;
+        }
+
+        if (!$subiektGt) {
+            $payload['state'] = 'partial';
+            $payload['message'] = 'Odpięto nagłówek, ale brak połączenia Sfery — WZ nie utworzono.';
+            return $payload;
+        }
+
+        $zkRow = self::getOrderRowByRefSql($orderRef);
+        $orderIdForPhantom = $zkRow !== null ? (int) ($zkRow['dok_Id'] ?? 0) : 0;
+        if ($orderIdForPhantom > 0 && !empty(self::getInvalidIssueRefsForOrderSql($orderIdForPhantom, $orderRef))) {
+            $phantom = self::repairPhantomIssueOrygClaimsForOrderSql($orderRef, true, $subiektGt);
+            $payload['phantom_oryg'] = $phantom;
+            if (!empty($phantom['reopen']['reopened'])) {
+                $payload['message'] = (string) ($phantom['reopen']['message'] ?? $payload['message']);
+            }
+        }
+
+        $order = self::loadExistingByRefVariants($subiektGt, array('order_ref' => $orderRef));
+        if ($order === null || !$order->isExists()) {
+            $payload['state'] = 'partial';
+            $payload['message'] = 'Odpięto nagłówek, ale nie wczytano ZK do Sfery: ' . $orderRef;
+            return $payload;
+        }
+
+        $existing = $order->findValidIssueForOrder();
+        if ($existing !== null && $existing !== '') {
+            $payload['wz'] = array(
+                'doc_ref' => $existing,
+                'already_exists' => true,
+            );
+            $payload['message'] = 'Odpięto błędny nagłówek. ZK ma już własne WZ: ' . $existing;
+            return $payload;
+        }
+
+        try {
+            $wzResult = $order->createWzFromOrder(
+                $fullRealization,
+                '',
+                array_merge($options, array(
+                    'include_order_services' => true,
+                    'copy_services_from_order' => true,
+                )),
+                $closeOrder
+            );
+            $payload['wz'] = $wzResult;
+            $docRef = trim((string) ($wzResult['doc_ref'] ?? ''));
+            if (!empty($wzResult['stock_failed'])) {
+                $payload['state'] = 'partial';
+                $payload['message'] = 'Odpięto nagłówek, ale brak towaru — WZ nie utworzono.';
+            } elseif ($docRef !== '') {
+                $payload['message'] = 'Odpięto błędny WZ i utworzono ' . $docRef
+                    . ($closeOrder ? ' (ZK domknięte).' : ' (ZK otwarte).');
+            } else {
+                $payload['state'] = 'partial';
+                $payload['message'] = 'Odpięto nagłówek, ale brak numeru WZ po zapisie.';
+            }
+        } catch (\Exception $e) {
+            $payload['state'] = 'partial';
+            $payload['message'] = 'Odpięto nagłówek, błąd Sfery przy WZ: ' . $e->getMessage();
+            $payload['error'] = $e->getMessage();
+        }
+
+        return $payload;
     }
 
     /**
@@ -2134,7 +3231,7 @@ class Order extends SubiektObj
             $zkDoDokId = (int) ($zkLinkData[0]['dok_DoDokId'] ?? 0);
             $zkDoDokNr = trim((string) ($zkLinkData[0]['dok_DoDokNrPelny'] ?? ''));
             if ($zkDoDokId === $wzId) {
-                return true;
+                return self::canLinkOrderHeaderToIssueSql($wzId, $orderId, $orderRef, $wzRow);
             }
             $wzNr = trim((string) ($wzRow['dok_NrPelny'] ?? ''));
             if ($wzNr === '' && $wzRow === null) {
@@ -2148,7 +3245,7 @@ class Order extends SubiektObj
                 $wzNr = trim((string) ($wzRow['dok_NrPelny'] ?? ''));
             }
             if ($zkDoDokNr !== '' && $wzNr !== '' && $zkDoDokNr === $wzNr) {
-                return true;
+                return self::canLinkOrderHeaderToIssueSql($wzId, $orderId, $orderRef, $wzRow);
             }
         }
 
@@ -2412,11 +3509,28 @@ class Order extends SubiektObj
         }
 
         $refs = array();
+        $safeVariants = array();
+        foreach (self::orderRefVariants($this->order_ref) as $variant) {
+            $safeVariants[] = "'" . str_replace("'", "''", $variant) . "'";
+        }
+        if (empty($safeVariants)) {
+            return $refs;
+        }
+        $inList = implode(', ', $safeVariants);
+
         $sql = "SELECT wz.dok_NrPelny, wz.dok_Id
                 FROM dok__Dokument wz
                 WHERE wz.dok_Typ = 11
                   AND wz.dok_Status >= 0
-                  AND wz.dok_Id BETWEEN {$orderId} AND {$orderId} + 15
+                  AND (
+                      wz.dok_NrPelnyOryg IN ({$inList})
+                      OR EXISTS (
+                          SELECT 1
+                          FROM dok_Pozycja wp
+                          INNER JOIN dok_Pozycja zk ON zk.ob_Id = wp.ob_DoId AND zk.ob_DokHanId = {$orderId}
+                          WHERE wp.ob_DokMagId = wz.dok_Id
+                      )
+                  )
                   AND EXISTS (
                       SELECT 1 FROM dok_Pozycja wp WHERE wp.ob_DokMagId = wz.dok_Id
                   )
@@ -2425,6 +3539,20 @@ class Order extends SubiektObj
                       FROM dok_Pozycja wp
                       INNER JOIN dok_Pozycja zk ON zk.ob_Id = wp.ob_DoId AND zk.ob_DokHanId = {$orderId}
                       WHERE wp.ob_DokMagId = wz.dok_Id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM dok_Pozycja wz_p
+                      INNER JOIN dok_Pozycja zk_p ON zk_p.ob_Id = wz_p.ob_DoId
+                      WHERE wz_p.ob_DokMagId = wz.dok_Id
+                        AND wz_p.ob_DoId > 0
+                        AND zk_p.ob_DokHanId <> {$orderId}
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dok__Dokument other_zk
+                      WHERE other_zk.dok_Typ = 16
+                        AND other_zk.dok_Id <> {$orderId}
+                        AND other_zk.dok_DoDokId = wz.dok_Id
                   )
                 ORDER BY wz.dok_Id ASC";
         $rows = MSSql::getInstance()->query($sql);
@@ -2668,14 +3796,20 @@ class Order extends SubiektObj
             return 0;
         }
 
-        MSSql::getInstance()->query(
-            "UPDATE dok_Pozycja
+        $updateSql = "UPDATE dok_Pozycja
              SET ob_IloscMag = ob_Ilosc
              WHERE ob_DokHanId = {$orderId}
                AND ob_Ilosc > 0.00001
                AND ABS(ob_Ilosc - ISNULL(ob_IloscMag, 0)) > 0.00001
-               AND (ob_TowRodzaj IS NULL OR ob_TowRodzaj <> " . self::TOW_RODZAJ_USLUGA . ")"
-        );
+               AND (ob_TowRodzaj IS NULL OR ob_TowRodzaj <> " . self::TOW_RODZAJ_USLUGA . ")";
+
+        if (MSSql::isComWritesOnly()) {
+            MSSql::withSqlWriteFallback(function () use ($updateSql) {
+                MSSql::getInstance()->query($updateSql);
+            });
+        } else {
+            MSSql::getInstance()->query($updateSql);
+        }
 
         Logger::getInstance()->log(
             'api',
@@ -3353,7 +4487,25 @@ class Order extends SubiektObj
                  INNER JOIN dok__Dokument wz ON wz.dok_Typ = 11 AND wz.dok_NrPelny IN ({$issueInList})
                  WHERE zk.dok_Id = {$orderId}
                    AND zk.dok_Typ = 16
-                   AND (zk.dok_DoDokId IS NULL OR zk.dok_DoDokId = 0)"
+                   AND (zk.dok_DoDokId IS NULL OR zk.dok_DoDokId = 0)
+                   AND (
+                       LTRIM(RTRIM(ISNULL(wz.dok_NrPelnyOryg, ''))) = ''
+                       OR wz.dok_NrPelnyOryg = zk.dok_NrPelny
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM dok__Dokument other_zk
+                       WHERE other_zk.dok_Typ = 16
+                         AND other_zk.dok_Id <> {$orderId}
+                         AND other_zk.dok_DoDokId = wz.dok_Id
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1
+                       FROM dok_Pozycja wz_p
+                       INNER JOIN dok_Pozycja zk_p ON zk_p.ob_Id = wz_p.ob_DoId
+                       WHERE wz_p.ob_DokMagId = wz.dok_Id
+                         AND wz_p.ob_DoId > 0
+                         AND zk_p.ob_DokHanId <> {$orderId}
+                   )"
             );
         }
 
@@ -3533,7 +4685,25 @@ class Order extends SubiektObj
                      zk.dok_DoDokDataWyst = wz.dok_DataWyst
                  FROM dok__Dokument zk
                  INNER JOIN dok__Dokument wz ON wz.dok_Typ = 11 AND wz.dok_NrPelny IN ({$issueInList})
-                 WHERE zk.dok_Id = {$orderId} AND zk.dok_Typ = 16"
+                 WHERE zk.dok_Id = {$orderId} AND zk.dok_Typ = 16
+                   AND (
+                       LTRIM(RTRIM(ISNULL(wz.dok_NrPelnyOryg, ''))) = ''
+                       OR wz.dok_NrPelnyOryg = zk.dok_NrPelny
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM dok__Dokument other_zk
+                       WHERE other_zk.dok_Typ = 16
+                         AND other_zk.dok_Id <> {$orderId}
+                         AND other_zk.dok_DoDokId = wz.dok_Id
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1
+                       FROM dok_Pozycja wz_p
+                       INNER JOIN dok_Pozycja zk_p ON zk_p.ob_Id = wz_p.ob_DoId
+                       WHERE wz_p.ob_DokMagId = wz.dok_Id
+                         AND wz_p.ob_DoId > 0
+                         AND zk_p.ob_DokHanId <> {$orderId}
+                   )"
             );
         }
 
@@ -3758,8 +4928,10 @@ class Order extends SubiektObj
         $statusEx = (int) ($zkRow['dok_StatusEx'] ?? 0);
         $coverage = self::isOrderFullyCoveredByLinkedIssuesSql($orderId, $orderRef);
         $remainingGoods = self::getOrderRemainingQtyFromSql($orderId, $orderRef, true);
+        $hasWzHeader = stripos(trim((string) ($zkRow['dok_DoDokNrPelny'] ?? '')), 'WZ') === 0;
+        $status6FullyIssued = ($status === 6 && ($statusEx & 4) !== 0 && $hasWzHeader);
 
-        if (!$coverage || $remainingGoods > 0.00001) {
+        if ((!$coverage && !$status6FullyIssued) || ($remainingGoods > 0.00001 && !$status6FullyIssued)) {
             return array(
                 'state' => 'noop',
                 'order_ref' => $orderRef,
@@ -3781,13 +4953,9 @@ class Order extends SubiektObj
             );
         }
 
-        $withReservation = in_array($status, array(5, 7), true);
-        $targetStatus = self::resolveOrderFulfilledTargetStatusAfterFullIssue($coverage, $withReservation);
-        $ok = self::applyOrderFulfilledStatusInSql(
-            $orderId,
-            $targetStatus,
-            self::orderFulfilledStatusUsesReservation($targetStatus, $withReservation)
-        );
+        // Po WZ zawsze status 8 (Zrealizowano) — nie 7 (otwarte z rezerwacją).
+        $targetStatus = 8;
+        $ok = self::applyOrderFulfilledStatusInSql($orderId, $targetStatus, false);
         $after = self::getOrderRowByRefSql($orderRef);
 
         return array(
@@ -3807,8 +4975,8 @@ class Order extends SubiektObj
                 'status_ex_label' => self::getOrderStatusExLabel((int) ($after['dok_StatusEx'] ?? 0)),
             ) : null,
             'message' => $ok
-                ? 'Ustawiono StatusEx „całkowicie” (bit 4). Odśwież listę ZK w GT (F5).'
-                : 'Nie udało się naprawić ptaszka — sprawdź status ZK i powiązanie WZ.',
+                ? 'Ustawiono ZK na Zrealizowano (status 8). Odśwież listę ZK w GT (F5).'
+                : 'Nie udało się naprawić statusu — sprawdź ZK i powiązanie WZ.',
         );
     }
 
@@ -3847,8 +5015,11 @@ class Order extends SubiektObj
         $statusEx = (int) ($zkRow['dok_StatusEx'] ?? 0);
         $coverage = self::isOrderFullyCoveredByLinkedIssuesSql($orderId, $orderRef);
         $remainingGoods = self::getOrderRemainingQtyFromSql($orderId, $orderRef, true);
+        $hasWzHeader = stripos(trim((string) ($zkRow['dok_DoDokNrPelny'] ?? '')), 'WZ') === 0;
+        // Status 6 + ptaszek „całkowicie” + nagłówek WZ = typowy błąd po Rezerwacja=false (bez Status=8).
+        $status6FullyIssued = ($status === 6 && ($statusEx & 4) !== 0 && $hasWzHeader);
 
-        if (!$coverage || $remainingGoods > 0.00001) {
+        if ((!$coverage && !$status6FullyIssued) || ($remainingGoods > 0.00001 && !$status6FullyIssued)) {
             return array(
                 'state' => 'noop',
                 'order_ref' => $orderRef,
@@ -3888,7 +5059,8 @@ class Order extends SubiektObj
     }
 
     /**
-     * Masowa naprawa ZK: status 7 + pełne WZ → promocja do 8 (szary ptaszek w liście GT).
+     * Masowa naprawa ZK: status 6/7 + pełne WZ + ptaszek → promocja do 8 (Zrealizowano).
+     * Status 6 („Nie rezerwuj…”) po WZ to typowy skutek błędnego Zapisz z samym Rezerwacja=false.
      *
      * @param string|null $dateFrom YYYY-MM-DD
      * @param bool $dryRun
@@ -3906,7 +5078,7 @@ class Order extends SubiektObj
             "SELECT zk.dok_Id, zk.dok_NrPelny, zk.dok_Status, zk.dok_StatusEx, zk.dok_DoDokNrPelny
              FROM dok__Dokument zk
              WHERE zk.dok_Typ = 16 AND zk.dok_Status >= 0
-               AND zk.dok_Status = 7
+               AND zk.dok_Status IN (6, 7)
                AND (ISNULL(zk.dok_StatusEx, 0) & 4) <> 0
                AND ISNULL(zk.dok_DoDokNrPelny, '') LIKE 'WZ%'
                {$dateFilter}
@@ -3954,7 +5126,7 @@ class Order extends SubiektObj
             'skipped_count' => count($skipped),
             'skipped' => array_slice($skipped, 0, 50),
             'message' => $dryRun
-                ? 'Podgląd — użyj apply, aby promować ZK 7→8.'
+                ? 'Podgląd — użyj apply, aby promować ZK 6/7→8 (Zrealizowano).'
                 : 'Naprawiono ' . count($fixed) . ' zamówień. Odśwież listę ZK w GT (F5).',
         );
     }
@@ -4020,7 +5192,7 @@ class Order extends SubiektObj
             return false;
         }
 
-        if (self::orderHasActiveIssueLinksSql($orderId, $orderRef)) {
+        if (self::orderHasValidIssueLinksSql($orderId, $orderRef)) {
             return false;
         }
 
@@ -4058,7 +5230,7 @@ class Order extends SubiektObj
             return false;
         }
 
-        if (self::orderHasActiveIssueLinksSql($orderId, $orderRef)) {
+        if (self::orderHasValidIssueLinksSql($orderId, $orderRef)) {
             return false;
         }
 
@@ -4381,7 +5553,17 @@ class Order extends SubiektObj
 
         // Docelowo: status 7 + COM Rezerwacja + IloscMag=Ilosc (jak ręczne ZK 3697).
         if (!$forceResync && $enable && $comReserved && ($reservedOpen || (int) $sqlState === 7)) {
-            $magFixed = self::syncReservedOpenIloscMagSql((int) $this->gt_id);
+            try {
+                $magFixed = self::syncReservedOpenIloscMagSql((int) $this->gt_id);
+            } catch (\Throwable $e) {
+                Logger::getInstance()->log(
+                    'api',
+                    'syncOrderReservationInCom: syncReservedOpenIloscMagSql ' . $this->order_ref . ': ' . $e->getMessage(),
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                $magFixed = 0;
+            }
             if ($magFixed > 0) {
                 return array(
                     'synced' => true,
@@ -4472,7 +5654,16 @@ class Order extends SubiektObj
             $sqlAfter = (int) (self::getOrderRowByIdSql((int) $this->gt_id)['dok_Status'] ?? $stateAfter);
             $magFixed = 0;
             if ($comAfter && (int) $sqlAfter === 7) {
-                $magFixed = self::syncReservedOpenIloscMagSql((int) $this->gt_id);
+                try {
+                    $magFixed = self::syncReservedOpenIloscMagSql((int) $this->gt_id);
+                } catch (\Throwable $e) {
+                    Logger::getInstance()->log(
+                        'api',
+                        'syncOrderReservationInCom: syncReservedOpenIloscMagSql ' . $this->order_ref . ': ' . $e->getMessage(),
+                        __CLASS__ . '->' . __FUNCTION__,
+                        __LINE__
+                    );
+                }
             }
 
             Logger::getInstance()->log(
@@ -4581,10 +5772,11 @@ class Order extends SubiektObj
     }
 
     /**
-     * Po pełnym pokryciu WZ — status 8 (pełny ptaszek w liście GT, rezerwacja zwolniona).
+     * Po pełnym pokryciu WZ — zawsze status 8 (Zrealizowano).
+     * Status 7 w tym GT = otwarte z rezerwacją (bez WZ); nie używać go po realizacji.
      *
      * @param bool $goodsCoverage
-     * @param bool $hadReservation
+     * @param bool $hadReservation nieużywane — zostawione dla kompatybilności wywołań
      * @return int
      */
     public static function resolveOrderFulfilledTargetStatusAfterFullIssue($goodsCoverage, $hadReservation)
@@ -4593,6 +5785,7 @@ class Order extends SubiektObj
             return 8;
         }
 
+        // Częściowe WZ: nie domykaj — zostaw otwarte (7 z rez. / 6 bez).
         return self::resolveOrderFulfilledTargetStatus($hadReservation);
     }
 
@@ -5146,6 +6339,18 @@ class Order extends SubiektObj
     }
 
     /**
+     * Czy ZK ma co najmniej jedno poprawne WZ (pozycje / oryginał zweryfikowane).
+     *
+     * @param int $orderId
+     * @param string $orderRef
+     * @return bool
+     */
+    public static function orderHasValidIssueLinksSql($orderId, $orderRef)
+    {
+        return !empty(self::getValidIssueRefsForOrderSql((int) $orderId, $orderRef));
+    }
+
+    /**
      * Otwiera ZK (5/6) po usunięciu ostatniego WZ i czyści nagłówek realizacji.
      *
      * @param int $orderId
@@ -5156,7 +6361,7 @@ class Order extends SubiektObj
     public static function reopenOrderAfterIssueRemovalSql($orderId, $orderRef, $withReservation = true)
     {
         $orderId = (int) $orderId;
-        if ($orderId <= 0 || self::orderHasActiveIssueLinksSql($orderId, $orderRef)) {
+        if ($orderId <= 0 || self::orderHasValidIssueLinksSql($orderId, $orderRef)) {
             return false;
         }
 
@@ -7046,6 +8251,14 @@ class Order extends SubiektObj
         $remainingAll = $this->orderGt
             ? self::sumRemainingToRealize($this->orderGt, false, $orderId, $this->order_ref)
             : 0.0;
+        // SQL fallback — COM remaining bywa 0 mimo niespójnych linków, a coverage SQL bywa false.
+        $remainingGoodsSql = self::getOrderRemainingQtyFromSql($orderId, $this->order_ref, true);
+        $coverageSql = self::isOrderFullyCoveredByLinkedIssuesSql($orderId, $this->order_ref);
+        $effectivelyFullyIssued = $goodsCoverage
+            || $coverageSql
+            || $remainingGoods <= 0.00001
+            || $remainingAll <= 0.00001
+            || $remainingGoodsSql <= 0.00001;
         $hasValidIssue = false;
         foreach ($issueRefs as $ref) {
             if (self::isIssueDocumentLinkedToOrder($ref, $orderId, $this->order_ref)) {
@@ -7053,11 +8266,18 @@ class Order extends SubiektObj
                 break;
             }
         }
+        if (!$hasValidIssue && !empty($issueRefs)) {
+            // WZ właśnie zapisane — traktuj extraIssueRefs jako ważne nawet przed pełną walidacją linków.
+            foreach ($freshIssueRefs as $ref) {
+                if (in_array($ref, $issueRefs, true)) {
+                    $hasValidIssue = true;
+                    break;
+                }
+            }
+        }
 
         $shouldClose = $closeOrder && $hasValidIssue && (
-            $goodsCoverage
-            || $remainingGoods <= 0.00001
-            || $remainingAll <= 0.00001
+            $effectivelyFullyIssued
             || ($headerLinked && $statusExComplete && !self::orderHasWarehouseGoodsPositions($orderId))
         );
 
@@ -7076,9 +8296,10 @@ class Order extends SubiektObj
         }
 
         if ($shouldClose) {
+            // Po pełnej realizacji WZ zawsze domykaj jako status 8 (nie zostawiaj 6 = „Nie rezerwuj…”).
             $closure = $this->syncOrderStateAfterNaPodstawieIssue(
                 $issueRefs,
-                $goodsCoverage,
+                true,
                 $hadReservation,
                 !empty($freshIssueRefs)
             );
@@ -7149,10 +8370,15 @@ class Order extends SubiektObj
         $freshIssueFromNaPodstawie = false
     )
     {
-        $targetStatus = self::resolveOrderFulfilledTargetStatusAfterFullIssue($goodsCoverage, $hadReservation);
+        // Pełne WZ → zawsze status 8 (Zrealizowano). Samo Rezerwacja=false daje status 6
+        // („Nie rezerwuj stanów magazynowych”) i zostawia ZK otwarte — tego unikamy.
+        $targetStatus = $goodsCoverage
+            ? 8
+            : self::resolveOrderFulfilledTargetStatusAfterFullIssue($goodsCoverage, $hadReservation);
         $this->reloadOrderFromGt();
 
-        if (self::isOrderStatusFulfilled((int) $this->state)) {
+        if (self::isOrderStatusFulfilled((int) $this->state)
+            && (((int) $this->status_ex) & 4) !== 0) {
             $resSync = $this->syncStockReservationsAfterIssueLifecycle();
 
             return array(
@@ -7169,7 +8395,8 @@ class Order extends SubiektObj
                 $this->refreshExistingIssueViaCom($issueRef);
             }
             $this->reloadOrderFromGt();
-            if (self::isOrderStatusFulfilled((int) $this->state)) {
+            if (self::isOrderStatusFulfilled((int) $this->state)
+                && (((int) $this->status_ex) & 4) !== 0) {
                 $resSync = $this->syncStockReservationsAfterIssueLifecycle();
 
                 return array(
@@ -7185,37 +8412,55 @@ class Order extends SubiektObj
         $this->syncOrderRealizedQuantitiesViaCom();
 
         $comSaved = false;
-        try {
-            if ((int) $targetStatus === 8 || !$hadReservation) {
-                $this->orderGt->Rezerwacja = false;
-            }
-            $this->orderGt->Przelicz();
-            $this->orderGt->Zapisz();
-            $comSaved = true;
-        } catch (\Exception $e) {
-            Logger::getInstance()->log(
-                'api',
-                'syncOrderStateAfterNaPodstawieIssue: COM Zapisz ZK ' . $this->order_ref . ': '
-                    . $e->getMessage(),
-                __CLASS__ . '->' . __FUNCTION__,
-                __LINE__
-            );
-        }
+        $gtClosed = self::isOrderStatusFulfilled((int) $this->state)
+            && (((int) $this->status_ex) & 4) !== 0;
 
-        $this->reloadOrderFromGt();
-        $gtClosed = self::isOrderStatusFulfilled((int) $this->state);
-
-        if (!$gtClosed && $goodsCoverage) {
+        // Domknięcie: Status=8 + StatusEx bit 4 (+ Rezerwacja=false w jednym kroku).
+        // NIE robić osobnego Zapisz z samym Rezerwacja=false — GT schodzi wtedy 7→6.
+        if (!$gtClosed && (int) $targetStatus === 8) {
             $orderId = (int) $this->gt_id;
-            $withReservation = self::orderFulfilledStatusUsesReservation($targetStatus, $hadReservation);
-            $applied = self::applyOrderFulfilledStatusInSql($orderId, $targetStatus, $withReservation);
+            $applied = self::applyOrderFulfilledStatusInSql($orderId, 8, false);
+            $comSaved = $applied;
             if ($applied) {
                 $this->reloadOrderFromGt();
                 $gtClosed = self::isOrderStatusFulfilled((int) $this->state);
                 Logger::getInstance()->log(
                     'api',
                     'syncOrderStateAfterNaPodstawieIssue: wymuszone domknięcie ZK '
-                        . $this->order_ref . ' → status ' . (int) $this->state,
+                        . $this->order_ref . ' → status ' . (int) $this->state
+                        . ' statusEx=' . (int) $this->status_ex,
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+            }
+
+            // Awaryjnie: jeśli COM/SQL nie ustawiły 8, spróbuj jeszcze raz przez COM Status + SQL.
+            if (!$gtClosed) {
+                $repair = self::repairOrderFulfilledCheckmarkSql($this->order_ref);
+                $this->reloadOrderFromGt();
+                $gtClosed = self::isOrderStatusFulfilled((int) $this->state);
+                Logger::getInstance()->log(
+                    'api',
+                    'syncOrderStateAfterNaPodstawieIssue: repairOrderFulfilledCheckmark '
+                        . $this->order_ref . ' state=' . (string) ($repair['state'] ?? '?')
+                        . ' zk_status=' . (int) $this->state,
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+            }
+        } elseif (!$gtClosed && (int) $targetStatus === 7 && $hadReservation && $this->orderGt) {
+            // Częściowa realizacja z rezerwacją — nie zdejmuj rezerwacji.
+            try {
+                $this->orderGt->Rezerwacja = true;
+                $this->orderGt->Przelicz();
+                $this->orderGt->Zapisz();
+                $comSaved = true;
+                $this->reloadOrderFromGt();
+            } catch (\Exception $e) {
+                Logger::getInstance()->log(
+                    'api',
+                    'syncOrderStateAfterNaPodstawieIssue: COM Zapisz ZK (rez.) ' . $this->order_ref . ': '
+                        . $e->getMessage(),
                     __CLASS__ . '->' . __FUNCTION__,
                     __LINE__
                 );
@@ -7223,6 +8468,24 @@ class Order extends SubiektObj
         }
 
         $resSync = $this->syncStockReservationsAfterIssueLifecycle();
+
+        // Po sync rezerwacji GT czasem cofa 8→6 — przywróć Zrealizowano gdy WZ nadal pokrywa.
+        if ((int) $targetStatus === 8 && !self::isOrderStatusFulfilled((int) $this->state)) {
+            $orderId = (int) $this->gt_id;
+            if (self::applyOrderFulfilledStatusInSql($orderId, 8, false)) {
+                $this->reloadOrderFromGt();
+                $gtClosed = self::isOrderStatusFulfilled((int) $this->state);
+                Logger::getInstance()->log(
+                    'api',
+                    'syncOrderStateAfterNaPodstawieIssue: ponowne domknięcie po sync rez. '
+                        . $this->order_ref . ' → status ' . (int) $this->state,
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+            }
+        } else {
+            $gtClosed = self::isOrderStatusFulfilled((int) $this->state);
+        }
 
         return array(
             'target_status' => $gtClosed ? (int) $this->state : $targetStatus,
@@ -8608,12 +9871,23 @@ class Order extends SubiektObj
             null
         );
 
+        $issueQty = (float) $qty;
+        if ($issueQty <= 0.00001) {
+            return;
+        }
+
         if ($priceNet !== null && (float) $priceNet > 0.00001) {
             self::trySetComObjectProperty(
                 $wzPos,
                 array('CenaNetto', 'CenaJednostkowaNetto', 'Cena'),
                 (float) $priceNet
             );
+            $lineNet = round((float) $priceNet * $issueQty, 4);
+            foreach (array(
+                array('WartoscNetto', 'WartoscNettoPoRabacie'),
+            ) as $pair) {
+                self::trySetComObjectProperty($wzPos, $pair, $lineNet);
+            }
         }
         if ($priceGross !== null && (float) $priceGross > 0.00001) {
             self::trySetComObjectProperty(
@@ -8621,22 +9895,32 @@ class Order extends SubiektObj
                 array('CenaBrutto', 'CenaJednostkowaBrutto'),
                 (float) $priceGross
             );
+            $lineGross = round((float) $priceGross * $issueQty, 4);
+            foreach (array(
+                array('WartoscBrutto', 'WartoscBruttoPoRabacie'),
+            ) as $pair) {
+                self::trySetComObjectProperty($wzPos, $pair, $lineGross);
+            }
         }
 
-        $orderedQty = self::tryGetComObjectProperty($zkPos, array('IloscJm', 'Ilosc'), 0.0);
-        $orderedQty = (float) $orderedQty;
-        if ($orderedQty <= 0.00001) {
-            $orderedQty = (float) $qty;
-        }
+        if (($priceNet === null || (float) $priceNet <= 0.00001)
+            && ($priceGross === null || (float) $priceGross <= 0.00001)
+        ) {
+            $orderedQty = self::tryGetComObjectProperty($zkPos, array('IloscJm', 'Ilosc'), 0.0);
+            $orderedQty = (float) $orderedQty;
+            if ($orderedQty <= 0.00001) {
+                $orderedQty = $issueQty;
+            }
 
-        $ratio = min(1.0, (float) $qty / $orderedQty);
-        foreach (array(
-            array('WartoscNetto', 'WartoscNettoPoRabacie'),
-            array('WartoscBrutto', 'WartoscBruttoPoRabacie'),
-        ) as $pair) {
-            $value = self::tryGetComObjectProperty($zkPos, $pair, null);
-            if ($value !== null && (float) $value > 0.00001) {
-                self::trySetComObjectProperty($wzPos, $pair, round((float) $value * $ratio, 4));
+            $ratio = min(1.0, $issueQty / $orderedQty);
+            foreach (array(
+                array('WartoscNetto', 'WartoscNettoPoRabacie'),
+                array('WartoscBrutto', 'WartoscBruttoPoRabacie'),
+            ) as $pair) {
+                $value = self::tryGetComObjectProperty($zkPos, $pair, null);
+                if ($value !== null && (float) $value > 0.00001) {
+                    self::trySetComObjectProperty($wzPos, $pair, round((float) $value * $ratio, 4));
+                }
             }
         }
     }
@@ -8688,8 +9972,13 @@ class Order extends SubiektObj
              INNER JOIN dok_Pozycja zk ON zk.ob_Id = wp.ob_DoId AND zk.ob_DokHanId = {$orderId}
              INNER JOIN dok__Dokument wz ON wz.dok_Id = wp.ob_DokMagId AND wz.dok_Typ = 11
              WHERE wz.dok_NrPelny IN ({$issueInList})
-               AND (ISNULL(wp.ob_CenaNetto, 0) = 0 OR ISNULL(wp.ob_WartNetto, 0) = 0)
-               AND ISNULL(zk.ob_CenaNetto, 0) > 0"
+               AND ISNULL(zk.ob_CenaNetto, 0) > 0
+               AND (
+                   ISNULL(wp.ob_CenaNetto, 0) = 0
+                   OR ISNULL(wp.ob_WartNetto, 0) = 0
+                   OR ABS(wp.ob_CenaNetto - zk.ob_CenaNetto) > 0.0001
+                   OR ABS(wp.ob_WartNetto - ROUND(wp.ob_Ilosc * zk.ob_CenaNetto, 4)) > 0.01
+               )"
         );
 
         MSSql::getInstance()->query(
@@ -9195,7 +10484,20 @@ class Order extends SubiektObj
                 $result['com_reservation'] = $this->syncOrderReservationInCom(true);
             }
 
-            $result['reservation_sync'] = $this->syncStockReservationsAfterIssueLifecycle();
+            try {
+                $result['reservation_sync'] = $this->syncStockReservationsAfterIssueLifecycle();
+            } catch (\Throwable $e) {
+                Logger::getInstance()->log(
+                    'api',
+                    'ensureReservationConsistentAfterSave: syncStockReservations ' . $orderRef . ': ' . $e->getMessage(),
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                $result['reservation_sync'] = array(
+                    'state' => 'error',
+                    'message' => $e->getMessage(),
+                );
+            }
             $result['state'] = (($repair['state'] ?? '') === 'success') ? 'repaired' : 'partial';
 
             return $result;
@@ -9211,7 +10513,21 @@ class Order extends SubiektObj
             $result['com_reservation'] = $this->syncOrderReservationInCom(true);
         }
 
-        $result['reservation_sync'] = $this->syncStockReservationsAfterIssueLifecycle();
+        try {
+            $result['reservation_sync'] = $this->syncStockReservationsAfterIssueLifecycle();
+        } catch (\Throwable $e) {
+            Logger::getInstance()->log(
+                'api',
+                'ensureReservationConsistentAfterSave: syncStockReservations ' . $orderRef . ': ' . $e->getMessage(),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+            $result['reservation_sync'] = array(
+                'state' => 'error',
+                'message' => $e->getMessage(),
+            );
+            $result['state'] = 'partial';
+        }
 
         return $result;
     }
@@ -9254,6 +10570,79 @@ class Order extends SubiektObj
     $cust_data = $customer->get();
     Logger::getInstance()->log('api', 'Kontrahent o NIP: ' . $cust_data['tax_id'] . ' istnieje w systemie.', __CLASS__ . '->' . __FUNCTION__, __LINE__);
 
+    $referenceForLookup = isset($this->orderDetail['reference'])
+        ? trim((string) $this->orderDetail['reference'])
+        : trim((string) ($this->reference ?? ''));
+    if ($referenceForLookup !== '') {
+        $existingByOryg = self::findOrderRowsByOriginalRefSql($referenceForLookup, (int) ($cust_data['gt_id'] ?? 0));
+        if (!empty($existingByOryg)) {
+            $primary = $existingByOryg[0];
+            $existingRef = trim((string) ($primary['dok_NrPelny'] ?? ''));
+            if ($existingRef !== '' && $this->subiektGt->SuDokumentyManager->Istnieje($existingRef)) {
+                $this->orderGt = $this->subiektGt->SuDokumentyManager->Wczytaj($existingRef);
+                $this->getGtObject();
+                $this->is_exists = true;
+                Logger::getInstance()->log(
+                    'api',
+                    'add: ZK już istnieje dla reference=' . $referenceForLookup . ' → ' . $this->order_ref
+                        . (count($existingByOryg) > 1 ? ', duplikatów=' . count($existingByOryg) : ''),
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                $dupRefs = array();
+                foreach ($existingByOryg as $row) {
+                    $nr = trim((string) ($row['dok_NrPelny'] ?? ''));
+                    if ($nr !== '') {
+                        $dupRefs[] = $nr;
+                    }
+                }
+
+                $products = isset($this->orderDetail['products']) && is_array($this->orderDetail['products'])
+                    ? $this->orderDetail['products']
+                    : null;
+                $appliedProducts = false;
+                if ($products !== null && count($products) > 0 && $this->orderGt) {
+                    Logger::getInstance()->log(
+                        'api',
+                        'add: reference już w GT — synchronizuję pozycje na ' . $this->order_ref
+                            . ' (CRM prawdopodobnie wywołało add zamiast update)',
+                        __CLASS__ . '->' . __FUNCTION__,
+                        __LINE__
+                    );
+                    $this->syncPositionsWithProducts($products);
+                    if (isset($this->orderDetail['comments'])) {
+                        $this->comments = Helper::toWin((string) $this->orderDetail['comments']);
+                    }
+                    if (isset($this->orderDetail['reference']) && (string) $this->orderDetail['reference'] !== '') {
+                        $this->reference = Helper::toWin((string) $this->orderDetail['reference']);
+                    }
+                    $this->setGtObject();
+                    $this->orderGt->Przelicz();
+                    $this->amount = $this->orderGt->WartoscBrutto;
+                    $this->orderGt->Zapisz();
+                    $this->getGtObject();
+                    $appliedProducts = true;
+                }
+
+                $result = array(
+                    'order_ref' => $this->order_ref,
+                    'order_amount' => $this->amount,
+                    'reservation' => (bool) $this->reservation,
+                    'zk_status' => (int) $this->state,
+                    'already_exists' => true,
+                    'duplicate_original_ref_count' => count($existingByOryg),
+                    'duplicate_order_refs' => $dupRefs,
+                );
+                if ($appliedProducts) {
+                    $result['merged_into_existing'] = true;
+                    $result['positions_synced'] = true;
+                }
+
+                return $result;
+            }
+        }
+    }
+
     // Tworzenie zamówienia
     $this->orderGt = $this->subiektGt->SuDokumentyManager->DodajZK();
     $this->orderGt->KontrahentId = intval($cust_data['gt_id']);
@@ -9290,28 +10679,45 @@ class Order extends SubiektObj
     $this->is_exists = true;
 
     $reservationSync = null;
-    if ($this->reservation) {
-        $reservationSync = $this->syncOrderReservationInCom(true);
+    $consistency = null;
+    $postSaveWarnings = array();
+    try {
+        if ($this->reservation) {
+            $reservationSync = $this->syncOrderReservationInCom(true);
+            Logger::getInstance()->log(
+                'api',
+                'add: syncOrderReservationInCom ' . $this->order_ref
+                    . ' synced=' . (!empty($reservationSync['synced']) ? 'tak' : 'nie')
+                    . (!empty($reservationSync['error']) ? ', error=' . $reservationSync['error'] : '')
+                    . ', state=' . (int) ($reservationSync['state'] ?? $this->state),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+        }
+
+        $consistency = $this->ensureReservationConsistentAfterSave();
         Logger::getInstance()->log(
             'api',
-            'add: syncOrderReservationInCom ' . $this->order_ref
-                . ' synced=' . (!empty($reservationSync['synced']) ? 'tak' : 'nie')
-                . (!empty($reservationSync['error']) ? ', error=' . $reservationSync['error'] : '')
-                . ', state=' . (int) ($reservationSync['state'] ?? $this->state),
+            'add: ensureReservationConsistentAfterSave ' . $this->order_ref
+                . ' state=' . (string) ($consistency['state'] ?? '?')
+                . ' repaired_stuck=' . (!empty($consistency['repaired_stuck']) ? 'tak' : 'nie'),
             __CLASS__ . '->' . __FUNCTION__,
             __LINE__
         );
+    } catch (\Throwable $e) {
+        $postSaveWarnings[] = $e->getMessage();
+        Logger::getInstance()->log(
+            'api_error',
+            'add: ZK zapisane (' . $this->order_ref . '), błąd po zapisie: ' . $e->getMessage(),
+            __CLASS__ . '->' . __FUNCTION__,
+            __LINE__
+        );
+        $consistency = array(
+            'state' => 'post_save_error',
+            'message' => $e->getMessage(),
+            'order_ref' => $this->order_ref,
+        );
     }
-
-    $consistency = $this->ensureReservationConsistentAfterSave();
-    Logger::getInstance()->log(
-        'api',
-        'add: ensureReservationConsistentAfterSave ' . $this->order_ref
-            . ' state=' . (string) ($consistency['state'] ?? '?')
-            . ' repaired_stuck=' . (!empty($consistency['repaired_stuck']) ? 'tak' : 'nie'),
-        __CLASS__ . '->' . __FUNCTION__,
-        __LINE__
-    );
 
     Logger::getInstance()->log('api', 'Utworzono zamówienie dla kontrahenta o NIP: ' . $taxId, __CLASS__ . '->' . __FUNCTION__, __LINE__);
 
@@ -9328,6 +10734,10 @@ class Order extends SubiektObj
         }
     }
     $result['reservation_consistency'] = $consistency;
+    if (!empty($postSaveWarnings)) {
+        $result['post_save_warnings'] = $postSaveWarnings;
+        $result['order_created'] = true;
+    }
 
     return $result;
 }
@@ -9620,14 +11030,58 @@ class Order extends SubiektObj
             $caretaker_changes = [];
             $new_orders = [];
             $updated_orders = [];
+            $reference_collisions = [];
+            $reference_to_order_refs = [];
+            $skipped_subiekt_duplicates = [];
             
             // Tworzymy mapę istniejących zamówień dla szybkiego wyszukiwania
             $existing_orders_map = [];
+            $existing_by_reference = [];
+            $known_b2b_references = array();
             foreach ($existing_orders as $existing_order) {
                 $order_ref = $existing_order['order_ref'] ?? $existing_order['doc_ref'] ?? '';
                 if ($order_ref) {
                     $existing_orders_map[$order_ref] = $existing_order;
+                    $gtRow = self::getOrderRowByRefSql((string) $order_ref);
+                    if ($gtRow !== null) {
+                        $gtOryg = trim((string) ($gtRow['dok_NrPelnyOryg'] ?? ''));
+                        if ($gtOryg !== '') {
+                            $known_b2b_references[$gtOryg] = (string) $order_ref;
+                        }
+                    }
                 }
+                $b2bRef = trim((string) ($existing_order['reference'] ?? ''));
+                if ($b2bRef !== '') {
+                    $existing_by_reference[$b2bRef] = $existing_order;
+                    if (!isset($known_b2b_references[$b2bRef])) {
+                        $known_b2b_references[$b2bRef] = $order_ref !== '' ? (string) $order_ref : '';
+                    }
+                }
+            }
+
+            $refToIds = array();
+            $canonical_order_ref_by_reference = array();
+            foreach ($data as $row) {
+                $b2bRef = trim((string) ($row['reference'] ?? ''));
+                if ($b2bRef === '') {
+                    continue;
+                }
+                if (!isset($refToIds[$b2bRef])) {
+                    $refToIds[$b2bRef] = array();
+                }
+                $refToIds[$b2bRef][] = array(
+                    'order_ref' => $row['order_ref'],
+                    'dok_Id' => (int) ($row['dok_Id'] ?? 0),
+                );
+            }
+            foreach ($refToIds as $refKey => $items) {
+                if (count($items) < 2) {
+                    continue;
+                }
+                usort($items, function ($a, $b) {
+                    return $a['dok_Id'] <=> $b['dok_Id'];
+                });
+                $canonical_order_ref_by_reference[$refKey] = $items[0]['order_ref'];
             }
             
             foreach ($data as $row) {
@@ -9666,6 +11120,14 @@ class Order extends SubiektObj
                 ];
                 
                 $orders[] = $order_data;
+
+                $b2bReference = trim((string) ($row['reference'] ?? ''));
+                if ($b2bReference !== '') {
+                    if (!isset($reference_to_order_refs[$b2bReference])) {
+                        $reference_to_order_refs[$b2bReference] = array();
+                    }
+                    $reference_to_order_refs[$b2bReference][] = $order_ref;
+                }
                 
                 // Sprawdzamy czy zamówienie już istnieje w zewnętrznym systemie
                 if (isset($existing_orders_map[$order_ref])) {
@@ -9687,9 +11149,40 @@ class Order extends SubiektObj
                         
                         Logger::getInstance()->log('api', "Zmiana opiekuna dla zamówienia {$order_ref}: '{$existing_caretaker}' -> '{$current_caretaker}'", __CLASS__ . '->' . __FUNCTION__, __LINE__);
                     }
+                } elseif ($b2bReference !== '' && isset($existing_by_reference[$b2bReference])) {
+                    // B2B zna reference, ale nie ma jeszcze order_ref — traktuj jak powiązane (bez listy „nowe”)
+                    $updated_orders[] = $order_data;
+                } elseif ($b2bReference !== '' && isset($known_b2b_references[$b2bReference])
+                    && !isset($existing_orders_map[$order_ref])) {
+                    // W CRM jest już inne ZK dla tego numeru B2B (np. po retry API w Subiekcie)
+                    $skipped_subiekt_duplicates[] = array(
+                        'order_ref' => $order_ref,
+                        'reference' => $b2bReference,
+                        'crm_linked_order_ref' => $known_b2b_references[$b2bReference],
+                        'reason' => 'duplicate_b2b_reference_in_subiekt',
+                    );
+                } elseif ($b2bReference !== '' && isset($canonical_order_ref_by_reference[$b2bReference])
+                    && $canonical_order_ref_by_reference[$b2bReference] !== $order_ref) {
+                    $skipped_subiekt_duplicates[] = array(
+                        'order_ref' => $order_ref,
+                        'reference' => $b2bReference,
+                        'canonical_order_ref' => $canonical_order_ref_by_reference[$b2bReference],
+                        'reason' => 'not_canonical_zk_for_reference',
+                    );
                 } else {
                     // Nowe zamówienie
                     $new_orders[] = $order_data;
+                }
+            }
+
+            foreach ($reference_to_order_refs as $refKey => $orderRefs) {
+                if (count($orderRefs) > 1) {
+                    $reference_collisions[] = array(
+                        'reference' => $refKey,
+                        'order_refs' => $orderRefs,
+                        'count' => count($orderRefs),
+                        'canonical_order_ref' => $canonical_order_ref_by_reference[$refKey] ?? $orderRefs[0],
+                    );
                 }
             }
             
@@ -9703,11 +11196,15 @@ class Order extends SubiektObj
                     'total_count' => count($orders),
                     'new_orders_count' => count($new_orders),
                     'updated_orders_count' => count($updated_orders),
-                    'caretaker_changes_count' => count($caretaker_changes)
+                    'caretaker_changes_count' => count($caretaker_changes),
+                    'reference_collisions_count' => count($reference_collisions),
+                    'skipped_subiekt_duplicates_count' => count($skipped_subiekt_duplicates),
                 ],
                 'caretaker_changes' => $caretaker_changes,
                 'new_orders' => $new_orders,
-                'updated_orders' => $updated_orders
+                'updated_orders' => $updated_orders,
+                'reference_collisions' => $reference_collisions,
+                'skipped_subiekt_duplicates' => $skipped_subiekt_duplicates,
             ];
             
             Logger::getInstance()->log('api', 'Synchronizacja zakończona: nowe=' . count($new_orders) . ', zaktualizowane=' . count($updated_orders) . ', zmiany opiekuna=' . count($caretaker_changes), __CLASS__ . '->' . __FUNCTION__, __LINE__);

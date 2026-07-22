@@ -1,0 +1,2249 @@
+﻿{
+    "orders": {
+        "ZK 3734/07/2026": {
+            "zk": {
+                "id": 69844,
+                "status": 7,
+                "status_label": "z rezerwacj─ů (otwarte / bez WZ lub zrealizowane z rez.)",
+                "status_ex": 0,
+                "oryg": "B2B-594/2026",
+                "netto": 4177.93,
+                "header_wz": "",
+                "uwagi": "Adres dostawy: DAMIAN MUSZYSKI\r\nNIEBOROWO 9\r\n74-202, Nieborowo\r\nTel.: 601956773\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINÔÇŽ",
+                "uwagi_ext": ""
+            },
+            "positions": [
+                {
+                    "symbol": "IW00AV1",
+                    "qty": 1,
+                    "ilosc_mag": 1
+                },
+                {
+                    "symbol": "IW00AV2",
+                    "qty": 1,
+                    "ilosc_mag": 1
+                },
+                {
+                    "symbol": "U001",
+                    "qty": 1,
+                    "ilosc_mag": 0
+                }
+            ],
+            "stock_snapshot": [
+                {
+                    "symbol": "IW00AV1",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 1,
+                    "stan": 0,
+                    "rez": 7
+                },
+                {
+                    "symbol": "IW00AV2",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 1,
+                    "stan": 0,
+                    "rez": 14
+                },
+                {
+                    "symbol": "U001",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 0,
+                    "stan": 0,
+                    "rez": 0
+                }
+            ],
+            "wz_linked_positions": [],
+            "wz_refs_all": [],
+            "wz_valid": [],
+            "wz_invalid": [],
+            "wz_found_by_uwagi_tokens": [
+                {
+                    "wz": {
+                        "dok_Id": 69901,
+                        "dok_NrPelny": "WZ 3345/07/2026",
+                        "dok_NrPelnyOryg": "",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-21 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": " FKRW260034942 suus\r\nAdres dostawy: Grzegorz Koterba\r\nBielska 68\r\n43-430 Skoczw\r\nTel.: 882562243",
+                        "dok_WartNetto": "17221.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69888,
+                        "dok_NrPelny": "WZ 3342/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3655/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-21 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Kamil Ostrowski FeStal\r\nPomiary 52\r\n98-337, Pomiary\r\nTel.: 783767576",
+                        "dok_WartNetto": "23200.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69864,
+                        "dok_NrPelny": "WZ 3339/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3688/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Janusz Korabik Pisarzowa 505 34-653 Pisarzowa Tel.: 660372337\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023966",
+                        "dok_WartNetto": "5314.4000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69863,
+                        "dok_NrPelny": "WZ 3338/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3724/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Tadeusz Lubo\r\nBryzdzyn 40\r\n32-241, Bryzdzyn\r\nTel.: 511545192- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 5 szt. CW-24 - Longi LR5-66HIH - 500W Mono (SFR)\r\n  WZ 1649/04/2026\r\n- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX\r\n  WZ 1743/04/2026",
+                        "dok_WartNetto": "2568.0900"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69861,
+                        "dok_NrPelny": "WZ 3336/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3735/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: URSZULA GZUBICKA\r\nRYSZEWO 6\r\n74-200, Ryszewo\r\nTel.: 535558009\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69860,
+                        "dok_NrPelny": "WZ 3335/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3732/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Alicja Kobyliska\r\nNorwida 2\r\n12-100, Szczytno\r\nTel.: 695824499\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69859,
+                        "dok_NrPelny": "WZ 3334/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3731/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: DAWID KOZAKIEWICZ\r\nPawowo 26\r\n09-228, Pawowo\r\nTel.: 537052696\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69858,
+                        "dok_NrPelny": "WZ 3333/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3730/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "WSTRZYMANE !!!!!!!!!!!!\r\n\r\nAdres dostawy: Zenon Zakrzewicz\r\nWrzesiska 36\r\n62-330, Zasutowo\r\nTel.: 502940975\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69857,
+                        "dok_NrPelny": "WZ 3332/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3722/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Andrzej Wauszko\r\nStary Rynek 17\r\n19-110, Gonidz\r\nTel.: 505472057\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69856,
+                        "dok_NrPelny": "WZ 3331/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3721/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Sylwester Tomczak\r\nWszembrz 51\r\n62-306, Wszembrz\r\nTel.: 692394125\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69855,
+                        "dok_NrPelny": "WZ 3330/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3720/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: KAMIL JDRZEJEWSKI TROSZYN 23/1 74-505, Troszyn Tel.: 794663886 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023463",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69854,
+                        "dok_NrPelny": "WZ 3329/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3719/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: JACEK KOCHANOWSKI GOSZKW 9 74-505, Goszkw Tel.: 730560816 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023598",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69853,
+                        "dok_NrPelny": "WZ 3328/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3718/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Bogumia Tamas Tapicerska 2 86-031, Osielsko Tel.: 722139850 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023556",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69851,
+                        "dok_NrPelny": "WZ 3327/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3696/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Karol Mordak Wola Solecka Pierwsza 112 27-300, Wola Solecka Pierwsza Tel.: 600912106 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023402",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69834,
+                        "dok_NrPelny": "WZ 3323/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3713/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Patno: Przelew bankowy, Dostawa: Kurier Tel.: 511515478 [Adres dostawy] \r\nAdres dostawy: Edward Mickiewicz EdVolt Edward Mickiewicz Ksiezycowa 8 26-900, Kozienice\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014019744",
+                        "dok_WartNetto": "14030.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69819,
+                        "dok_NrPelny": "WZ 3318/07/2026",
+                        "dok_NrPelnyOryg": "",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "RW739\r\nzakup zewntrzny \r\nAdres dostawy: Adam Halama\r\nKowalowo 7\r\n56-210, Kowalowo\r\nTel.: 662432111- 1 szt. DY61 - DEYE SUN-10K-SG05LP3-EU WZ 1428/03/2026\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 6 szt. MF0206 - TCL 615Wp HSM-ND66-GR615 N-Type bifacial (SFR)\r\n  zakup zewntrzny\r\n- 1 szt. DY61 - DEYE SUN-10K-SG05LP3-EU\r\n  WZ 1428/03/2026\r\nWysyka bezporednia MKRI260070808 SUUS (magazyn energii Felicity FLA48460TG2-EU 23,5 KWHLV)",
+                        "dok_WartNetto": "3477.2100"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69729,
+                        "dok_NrPelny": "WZ 3299/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3666/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Mariusz Modozeniec \r\nytnia 12 \r\n77-300 Czuchw, Czuchw \r\nTel.: 608641881 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014012619",
+                        "dok_WartNetto": "16514.0500"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69726,
+                        "dok_NrPelny": "WZ 3298/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3694/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Boena Ruszkowska \r\nOstrowska 23 \r\n07-300, Stare Lubiejewo \r\nTel.: 782364560 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014010852",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69725,
+                        "dok_NrPelny": "WZ 3297/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3694/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Waldemar Tadla \r\nNowe Lubiejewo 19 \r\n07-300, Nowe Lubiejewo \r\nTel.: 724369029 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014010897",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69648,
+                        "dok_NrPelny": "WZ 3279/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3669/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Wodzimierz Buziak \r\nBiechowo 40 \r\n62-320, Biechowo \r\nTel.: 607458777 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006590",
+                        "dok_WartNetto": "3977.9300"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69647,
+                        "dok_NrPelny": "WZ 3278/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3667/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Marek Wal \r\nRoki 12 \r\n62-320, Biechowo \r\nTel.: 784658490 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006564",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69646,
+                        "dok_NrPelny": "WZ 3277/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3664/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Jadwiga Rosiak \r\nGrabowiec 28/1 \r\n98-200, Sieradz \r\nTel.: 539912525 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006623",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                }
+            ],
+            "diag": {
+                "state": "success",
+                "order_ref": "ZK 3734/07/2026",
+                "order_id": 69844,
+                "order_status": 7,
+                "order_status_label": "z rezerwacj─ů (otwarte / bez WZ lub zrealizowane z rez.)",
+                "status_ex": 0,
+                "status_ex_label": "nie zrealizowane",
+                "header_issue_ref": "",
+                "header_issue_id": 0,
+                "own_issue_refs": [],
+                "valid_issue_refs": [],
+                "invalid_issue_refs": [],
+                "issue_coverage_complete": false,
+                "stale": false,
+                "can_clear": false,
+                "can_link_header": false,
+                "can_repair_phantom_oryg": false,
+                "can_reopen_for_wz": false,
+                "issues": [],
+                "message": "ZK nie ma nag┼é├│wka ani WZ ÔÇö mo┼╝na wystawi─ç nowe WZ."
+            }
+        },
+        "ZK 3735/07/2026": {
+            "zk": {
+                "id": 69846,
+                "status": 8,
+                "status_label": "zrealizowane (po WZ)",
+                "status_ex": 4,
+                "oryg": "B2B-595/2026",
+                "netto": 4177.93,
+                "header_wz": "WZ 3336/07/2026",
+                "uwagi": "Adres dostawy: URSZULA GZUBICKA\r\nRYSZEWO 6\r\n74-200, Ryszewo\r\nTel.: 535558009\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DÔÇŽ",
+                "uwagi_ext": ""
+            },
+            "positions": [
+                {
+                    "symbol": "IW00AV1",
+                    "qty": 1,
+                    "ilosc_mag": 1
+                },
+                {
+                    "symbol": "IW00AV2",
+                    "qty": 1,
+                    "ilosc_mag": 1
+                },
+                {
+                    "symbol": "U001",
+                    "qty": 1,
+                    "ilosc_mag": 1
+                }
+            ],
+            "stock_snapshot": [
+                {
+                    "symbol": "IW00AV1",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 1,
+                    "stan": 0,
+                    "rez": 7
+                },
+                {
+                    "symbol": "IW00AV2",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 1,
+                    "stan": 0,
+                    "rez": 14
+                },
+                {
+                    "symbol": "U001",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 1,
+                    "stan": 0,
+                    "rez": 0
+                }
+            ],
+            "wz_linked_positions": [
+                {
+                    "dok_NrPelny": "WZ 3336/07/2026",
+                    "dok_Id": 69861,
+                    "dok_NrPelnyOryg": "ZK 3735/07/2026",
+                    "dok_Status": 1,
+                    "dok_Uwagi": "Adres dostawy: URSZULA GZUBICKA\r\nRYSZEWO 6\r\n74-200, Ryszewo\r\nTel.: 535558009\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                    "dok_DataWyst": {
+                        "date": "2026-07-20 00:00:00.000000",
+                        "timezone_type": 3,
+                        "timezone": "Europe/Berlin"
+                    },
+                    "qty_linked": "2.0000"
+                }
+            ],
+            "wz_refs_all": [
+                "WZ 3336/07/2026"
+            ],
+            "wz_valid": [
+                "WZ 3336/07/2026"
+            ],
+            "wz_invalid": [],
+            "wz_found_by_uwagi_tokens": [
+                {
+                    "wz": {
+                        "dok_Id": 69901,
+                        "dok_NrPelny": "WZ 3345/07/2026",
+                        "dok_NrPelnyOryg": "",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-21 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": " FKRW260034942 suus\r\nAdres dostawy: Grzegorz Koterba\r\nBielska 68\r\n43-430 Skoczw\r\nTel.: 882562243",
+                        "dok_WartNetto": "17221.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69888,
+                        "dok_NrPelny": "WZ 3342/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3655/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-21 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Kamil Ostrowski FeStal\r\nPomiary 52\r\n98-337, Pomiary\r\nTel.: 783767576",
+                        "dok_WartNetto": "23200.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69864,
+                        "dok_NrPelny": "WZ 3339/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3688/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Janusz Korabik Pisarzowa 505 34-653 Pisarzowa Tel.: 660372337\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023966",
+                        "dok_WartNetto": "5314.4000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69863,
+                        "dok_NrPelny": "WZ 3338/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3724/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Tadeusz Lubo\r\nBryzdzyn 40\r\n32-241, Bryzdzyn\r\nTel.: 511545192- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 5 szt. CW-24 - Longi LR5-66HIH - 500W Mono (SFR)\r\n  WZ 1649/04/2026\r\n- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX\r\n  WZ 1743/04/2026",
+                        "dok_WartNetto": "2568.0900"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69861,
+                        "dok_NrPelny": "WZ 3336/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3735/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: URSZULA GZUBICKA\r\nRYSZEWO 6\r\n74-200, Ryszewo\r\nTel.: 535558009\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "GZUBICKA",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": true
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69860,
+                        "dok_NrPelny": "WZ 3335/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3732/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Alicja Kobyliska\r\nNorwida 2\r\n12-100, Szczytno\r\nTel.: 695824499\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69859,
+                        "dok_NrPelny": "WZ 3334/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3731/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: DAWID KOZAKIEWICZ\r\nPawowo 26\r\n09-228, Pawowo\r\nTel.: 537052696\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69858,
+                        "dok_NrPelny": "WZ 3333/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3730/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "WSTRZYMANE !!!!!!!!!!!!\r\n\r\nAdres dostawy: Zenon Zakrzewicz\r\nWrzesiska 36\r\n62-330, Zasutowo\r\nTel.: 502940975\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69857,
+                        "dok_NrPelny": "WZ 3332/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3722/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Andrzej Wauszko\r\nStary Rynek 17\r\n19-110, Gonidz\r\nTel.: 505472057\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69856,
+                        "dok_NrPelny": "WZ 3331/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3721/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Sylwester Tomczak\r\nWszembrz 51\r\n62-306, Wszembrz\r\nTel.: 692394125\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69855,
+                        "dok_NrPelny": "WZ 3330/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3720/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: KAMIL JDRZEJEWSKI TROSZYN 23/1 74-505, Troszyn Tel.: 794663886 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023463",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69854,
+                        "dok_NrPelny": "WZ 3329/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3719/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: JACEK KOCHANOWSKI GOSZKW 9 74-505, Goszkw Tel.: 730560816 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023598",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69853,
+                        "dok_NrPelny": "WZ 3328/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3718/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Bogumia Tamas Tapicerska 2 86-031, Osielsko Tel.: 722139850 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023556",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69851,
+                        "dok_NrPelny": "WZ 3327/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3696/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Karol Mordak Wola Solecka Pierwsza 112 27-300, Wola Solecka Pierwsza Tel.: 600912106 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023402",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69834,
+                        "dok_NrPelny": "WZ 3323/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3713/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Patno: Przelew bankowy, Dostawa: Kurier Tel.: 511515478 [Adres dostawy] \r\nAdres dostawy: Edward Mickiewicz EdVolt Edward Mickiewicz Ksiezycowa 8 26-900, Kozienice\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014019744",
+                        "dok_WartNetto": "14030.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69819,
+                        "dok_NrPelny": "WZ 3318/07/2026",
+                        "dok_NrPelnyOryg": "",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "RW739\r\nzakup zewntrzny \r\nAdres dostawy: Adam Halama\r\nKowalowo 7\r\n56-210, Kowalowo\r\nTel.: 662432111- 1 szt. DY61 - DEYE SUN-10K-SG05LP3-EU WZ 1428/03/2026\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 6 szt. MF0206 - TCL 615Wp HSM-ND66-GR615 N-Type bifacial (SFR)\r\n  zakup zewntrzny\r\n- 1 szt. DY61 - DEYE SUN-10K-SG05LP3-EU\r\n  WZ 1428/03/2026\r\nWysyka bezporednia MKRI260070808 SUUS (magazyn energii Felicity FLA48460TG2-EU 23,5 KWHLV)",
+                        "dok_WartNetto": "3477.2100"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69729,
+                        "dok_NrPelny": "WZ 3299/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3666/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Mariusz Modozeniec \r\nytnia 12 \r\n77-300 Czuchw, Czuchw \r\nTel.: 608641881 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014012619",
+                        "dok_WartNetto": "16514.0500"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69726,
+                        "dok_NrPelny": "WZ 3298/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3694/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Boena Ruszkowska \r\nOstrowska 23 \r\n07-300, Stare Lubiejewo \r\nTel.: 782364560 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014010852",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69725,
+                        "dok_NrPelny": "WZ 3297/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3694/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Waldemar Tadla \r\nNowe Lubiejewo 19 \r\n07-300, Nowe Lubiejewo \r\nTel.: 724369029 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014010897",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69648,
+                        "dok_NrPelny": "WZ 3279/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3669/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Wodzimierz Buziak \r\nBiechowo 40 \r\n62-320, Biechowo \r\nTel.: 607458777 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006590",
+                        "dok_WartNetto": "3977.9300"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69647,
+                        "dok_NrPelny": "WZ 3278/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3667/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Marek Wal \r\nRoki 12 \r\n62-320, Biechowo \r\nTel.: 784658490 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006564",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69646,
+                        "dok_NrPelny": "WZ 3277/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3664/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Jadwiga Rosiak \r\nGrabowiec 28/1 \r\n98-200, Sieradz \r\nTel.: 539912525 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006623",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                }
+            ],
+            "diag": {
+                "state": "success",
+                "order_ref": "ZK 3735/07/2026",
+                "order_id": 69846,
+                "order_status": 8,
+                "order_status_label": "zrealizowane (po WZ)",
+                "status_ex": 4,
+                "status_ex_label": "ca┼ékowicie",
+                "header_issue_ref": "WZ 3336/07/2026",
+                "header_issue_id": 69861,
+                "own_issue_refs": [
+                    "WZ 3336/07/2026"
+                ],
+                "valid_issue_refs": [
+                    "WZ 3336/07/2026"
+                ],
+                "invalid_issue_refs": [],
+                "issue_coverage_complete": true,
+                "stale": false,
+                "can_clear": false,
+                "can_link_header": false,
+                "can_repair_phantom_oryg": false,
+                "can_reopen_for_wz": false,
+                "issues": [],
+                "message": "Nag┼é├│wek ZKÔćĺWZ wygl─ůda na poprawny.",
+                "issue": {
+                    "dok_Id": 69861,
+                    "dok_NrPelny": "WZ 3336/07/2026",
+                    "dok_NrPelnyOryg": "ZK 3735/07/2026",
+                    "dok_WartNetto": 4177.93
+                },
+                "foreign_positions": false,
+                "other_header_claim": false,
+                "oryg_mismatch": false
+            }
+        },
+        "ZK 3736/07/2026": {
+            "zk": {
+                "id": 69847,
+                "status": 7,
+                "status_label": "z rezerwacj─ů (otwarte / bez WZ lub zrealizowane z rez.)",
+                "status_ex": 0,
+                "oryg": "B2B-596/2026",
+                "netto": 5911.9,
+                "header_wz": "",
+                "uwagi": "Adres dostawy: Ewa Tokarczyk\r\nPabianice ks. Piotra Skargi 164A\r\n95-200, Pabianice\r\nTel.: 602571352\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS LiÔÇŽ",
+                "uwagi_ext": ""
+            },
+            "positions": [
+                {
+                    "symbol": "IW00AV1",
+                    "qty": 1,
+                    "ilosc_mag": 1
+                },
+                {
+                    "symbol": "IW00AV2",
+                    "qty": 2,
+                    "ilosc_mag": 2
+                },
+                {
+                    "symbol": "U001",
+                    "qty": 1,
+                    "ilosc_mag": 0
+                }
+            ],
+            "stock_snapshot": [
+                {
+                    "symbol": "IW00AV1",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 1,
+                    "stan": 0,
+                    "rez": 7
+                },
+                {
+                    "symbol": "IW00AV2",
+                    "ordered": 2,
+                    "ilosc_mag_zk": 2,
+                    "stan": 0,
+                    "rez": 14
+                },
+                {
+                    "symbol": "U001",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 0,
+                    "stan": 0,
+                    "rez": 0
+                }
+            ],
+            "wz_linked_positions": [],
+            "wz_refs_all": [],
+            "wz_valid": [],
+            "wz_invalid": [],
+            "wz_found_by_uwagi_tokens": [
+                {
+                    "wz": {
+                        "dok_Id": 69901,
+                        "dok_NrPelny": "WZ 3345/07/2026",
+                        "dok_NrPelnyOryg": "",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-21 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": " FKRW260034942 suus\r\nAdres dostawy: Grzegorz Koterba\r\nBielska 68\r\n43-430 Skoczw\r\nTel.: 882562243",
+                        "dok_WartNetto": "17221.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69888,
+                        "dok_NrPelny": "WZ 3342/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3655/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-21 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Kamil Ostrowski FeStal\r\nPomiary 52\r\n98-337, Pomiary\r\nTel.: 783767576",
+                        "dok_WartNetto": "23200.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69864,
+                        "dok_NrPelny": "WZ 3339/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3688/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Janusz Korabik Pisarzowa 505 34-653 Pisarzowa Tel.: 660372337\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023966",
+                        "dok_WartNetto": "5314.4000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69863,
+                        "dok_NrPelny": "WZ 3338/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3724/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Tadeusz Lubo\r\nBryzdzyn 40\r\n32-241, Bryzdzyn\r\nTel.: 511545192- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 5 szt. CW-24 - Longi LR5-66HIH - 500W Mono (SFR)\r\n  WZ 1649/04/2026\r\n- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX\r\n  WZ 1743/04/2026",
+                        "dok_WartNetto": "2568.0900"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69861,
+                        "dok_NrPelny": "WZ 3336/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3735/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: URSZULA GZUBICKA\r\nRYSZEWO 6\r\n74-200, Ryszewo\r\nTel.: 535558009\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69860,
+                        "dok_NrPelny": "WZ 3335/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3732/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Alicja Kobyliska\r\nNorwida 2\r\n12-100, Szczytno\r\nTel.: 695824499\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69859,
+                        "dok_NrPelny": "WZ 3334/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3731/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: DAWID KOZAKIEWICZ\r\nPawowo 26\r\n09-228, Pawowo\r\nTel.: 537052696\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69858,
+                        "dok_NrPelny": "WZ 3333/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3730/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "WSTRZYMANE !!!!!!!!!!!!\r\n\r\nAdres dostawy: Zenon Zakrzewicz\r\nWrzesiska 36\r\n62-330, Zasutowo\r\nTel.: 502940975\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69857,
+                        "dok_NrPelny": "WZ 3332/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3722/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Andrzej Wauszko\r\nStary Rynek 17\r\n19-110, Gonidz\r\nTel.: 505472057\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69856,
+                        "dok_NrPelny": "WZ 3331/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3721/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Sylwester Tomczak\r\nWszembrz 51\r\n62-306, Wszembrz\r\nTel.: 692394125\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69855,
+                        "dok_NrPelny": "WZ 3330/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3720/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: KAMIL JDRZEJEWSKI TROSZYN 23/1 74-505, Troszyn Tel.: 794663886 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023463",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69854,
+                        "dok_NrPelny": "WZ 3329/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3719/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: JACEK KOCHANOWSKI GOSZKW 9 74-505, Goszkw Tel.: 730560816 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023598",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69853,
+                        "dok_NrPelny": "WZ 3328/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3718/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Bogumia Tamas Tapicerska 2 86-031, Osielsko Tel.: 722139850 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023556",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69851,
+                        "dok_NrPelny": "WZ 3327/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3696/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Karol Mordak Wola Solecka Pierwsza 112 27-300, Wola Solecka Pierwsza Tel.: 600912106 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023402",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69834,
+                        "dok_NrPelny": "WZ 3323/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3713/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Patno: Przelew bankowy, Dostawa: Kurier Tel.: 511515478 [Adres dostawy] \r\nAdres dostawy: Edward Mickiewicz EdVolt Edward Mickiewicz Ksiezycowa 8 26-900, Kozienice\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014019744",
+                        "dok_WartNetto": "14030.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69819,
+                        "dok_NrPelny": "WZ 3318/07/2026",
+                        "dok_NrPelnyOryg": "",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "RW739\r\nzakup zewntrzny \r\nAdres dostawy: Adam Halama\r\nKowalowo 7\r\n56-210, Kowalowo\r\nTel.: 662432111- 1 szt. DY61 - DEYE SUN-10K-SG05LP3-EU WZ 1428/03/2026\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 6 szt. MF0206 - TCL 615Wp HSM-ND66-GR615 N-Type bifacial (SFR)\r\n  zakup zewntrzny\r\n- 1 szt. DY61 - DEYE SUN-10K-SG05LP3-EU\r\n  WZ 1428/03/2026\r\nWysyka bezporednia MKRI260070808 SUUS (magazyn energii Felicity FLA48460TG2-EU 23,5 KWHLV)",
+                        "dok_WartNetto": "3477.2100"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69729,
+                        "dok_NrPelny": "WZ 3299/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3666/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Mariusz Modozeniec \r\nytnia 12 \r\n77-300 Czuchw, Czuchw \r\nTel.: 608641881 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014012619",
+                        "dok_WartNetto": "16514.0500"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69726,
+                        "dok_NrPelny": "WZ 3298/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3694/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Boena Ruszkowska \r\nOstrowska 23 \r\n07-300, Stare Lubiejewo \r\nTel.: 782364560 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014010852",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69725,
+                        "dok_NrPelny": "WZ 3297/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3694/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Waldemar Tadla \r\nNowe Lubiejewo 19 \r\n07-300, Nowe Lubiejewo \r\nTel.: 724369029 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014010897",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69648,
+                        "dok_NrPelny": "WZ 3279/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3669/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Wodzimierz Buziak \r\nBiechowo 40 \r\n62-320, Biechowo \r\nTel.: 607458777 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006590",
+                        "dok_WartNetto": "3977.9300"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69647,
+                        "dok_NrPelny": "WZ 3278/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3667/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Marek Wal \r\nRoki 12 \r\n62-320, Biechowo \r\nTel.: 784658490 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006564",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69646,
+                        "dok_NrPelny": "WZ 3277/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3664/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Jadwiga Rosiak \r\nGrabowiec 28/1 \r\n98-200, Sieradz \r\nTel.: 539912525 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006623",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                }
+            ],
+            "diag": {
+                "state": "success",
+                "order_ref": "ZK 3736/07/2026",
+                "order_id": 69847,
+                "order_status": 7,
+                "order_status_label": "z rezerwacj─ů (otwarte / bez WZ lub zrealizowane z rez.)",
+                "status_ex": 0,
+                "status_ex_label": "nie zrealizowane",
+                "header_issue_ref": "",
+                "header_issue_id": 0,
+                "own_issue_refs": [],
+                "valid_issue_refs": [],
+                "invalid_issue_refs": [],
+                "issue_coverage_complete": false,
+                "stale": false,
+                "can_clear": false,
+                "can_link_header": false,
+                "can_repair_phantom_oryg": false,
+                "can_reopen_for_wz": false,
+                "issues": [],
+                "message": "ZK nie ma nag┼é├│wka ani WZ ÔÇö mo┼╝na wystawi─ç nowe WZ."
+            }
+        },
+        "ZK 3737/07/2026": {
+            "zk": {
+                "id": 69850,
+                "status": 7,
+                "status_label": "z rezerwacj─ů (otwarte / bez WZ lub zrealizowane z rez.)",
+                "status_ex": 0,
+                "oryg": "B2B-597/2026",
+                "netto": 5911.9,
+                "header_wz": "",
+                "uwagi": "Adres dostawy: Rafa Hornowski\r\nJuniewicze 37\r\n08-206, Juniewicze\r\nTel.: 785933269\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHÔÇŽ",
+                "uwagi_ext": ""
+            },
+            "positions": [
+                {
+                    "symbol": "IW00AV1",
+                    "qty": 1,
+                    "ilosc_mag": 1
+                },
+                {
+                    "symbol": "IW00AV2",
+                    "qty": 2,
+                    "ilosc_mag": 2
+                },
+                {
+                    "symbol": "U001",
+                    "qty": 1,
+                    "ilosc_mag": 0
+                }
+            ],
+            "stock_snapshot": [
+                {
+                    "symbol": "IW00AV1",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 1,
+                    "stan": 0,
+                    "rez": 7
+                },
+                {
+                    "symbol": "IW00AV2",
+                    "ordered": 2,
+                    "ilosc_mag_zk": 2,
+                    "stan": 0,
+                    "rez": 14
+                },
+                {
+                    "symbol": "U001",
+                    "ordered": 1,
+                    "ilosc_mag_zk": 0,
+                    "stan": 0,
+                    "rez": 0
+                }
+            ],
+            "wz_linked_positions": [],
+            "wz_refs_all": [],
+            "wz_valid": [],
+            "wz_invalid": [],
+            "wz_found_by_uwagi_tokens": [
+                {
+                    "wz": {
+                        "dok_Id": 69901,
+                        "dok_NrPelny": "WZ 3345/07/2026",
+                        "dok_NrPelnyOryg": "",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-21 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": " FKRW260034942 suus\r\nAdres dostawy: Grzegorz Koterba\r\nBielska 68\r\n43-430 Skoczw\r\nTel.: 882562243",
+                        "dok_WartNetto": "17221.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69888,
+                        "dok_NrPelny": "WZ 3342/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3655/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-21 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Kamil Ostrowski FeStal\r\nPomiary 52\r\n98-337, Pomiary\r\nTel.: 783767576",
+                        "dok_WartNetto": "23200.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69864,
+                        "dok_NrPelny": "WZ 3339/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3688/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Janusz Korabik Pisarzowa 505 34-653 Pisarzowa Tel.: 660372337\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023966",
+                        "dok_WartNetto": "5314.4000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69863,
+                        "dok_NrPelny": "WZ 3338/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3724/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Tadeusz Lubo\r\nBryzdzyn 40\r\n32-241, Bryzdzyn\r\nTel.: 511545192- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 5 szt. CW-24 - Longi LR5-66HIH - 500W Mono (SFR)\r\n  WZ 1649/04/2026\r\n- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX\r\n  WZ 1743/04/2026",
+                        "dok_WartNetto": "2568.0900"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69861,
+                        "dok_NrPelny": "WZ 3336/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3735/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: URSZULA GZUBICKA\r\nRYSZEWO 6\r\n74-200, Ryszewo\r\nTel.: 535558009\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69860,
+                        "dok_NrPelny": "WZ 3335/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3732/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Alicja Kobyliska\r\nNorwida 2\r\n12-100, Szczytno\r\nTel.: 695824499\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69859,
+                        "dok_NrPelny": "WZ 3334/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3731/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: DAWID KOZAKIEWICZ\r\nPawowo 26\r\n09-228, Pawowo\r\nTel.: 537052696\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69858,
+                        "dok_NrPelny": "WZ 3333/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3730/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "WSTRZYMANE !!!!!!!!!!!!\r\n\r\nAdres dostawy: Zenon Zakrzewicz\r\nWrzesiska 36\r\n62-330, Zasutowo\r\nTel.: 502940975\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69857,
+                        "dok_NrPelny": "WZ 3332/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3722/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Andrzej Wauszko\r\nStary Rynek 17\r\n19-110, Gonidz\r\nTel.: 505472057\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69856,
+                        "dok_NrPelny": "WZ 3331/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3721/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Sylwester Tomczak\r\nWszembrz 51\r\n62-306, Wszembrz\r\nTel.: 692394125\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666\r\n  zakup zewntrzny",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69855,
+                        "dok_NrPelny": "WZ 3330/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3720/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: KAMIL JDRZEJEWSKI TROSZYN 23/1 74-505, Troszyn Tel.: 794663886 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023463",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69854,
+                        "dok_NrPelny": "WZ 3329/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3719/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: JACEK KOCHANOWSKI GOSZKW 9 74-505, Goszkw Tel.: 730560816 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023598",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69853,
+                        "dok_NrPelny": "WZ 3328/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3718/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Bogumia Tamas Tapicerska 2 86-031, Osielsko Tel.: 722139850 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023556",
+                        "dok_WartNetto": "4177.9300"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69851,
+                        "dok_NrPelny": "WZ 3327/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3696/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Karol Mordak Wola Solecka Pierwsza 112 27-300, Wola Solecka Pierwsza Tel.: 600912106 Towary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: - 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014023402",
+                        "dok_WartNetto": "5911.9000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:",
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69834,
+                        "dok_NrPelny": "WZ 3323/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3713/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Patno: Przelew bankowy, Dostawa: Kurier Tel.: 511515478 [Adres dostawy] \r\nAdres dostawy: Edward Mickiewicz EdVolt Edward Mickiewicz Ksiezycowa 8 26-900, Kozienice\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014019744",
+                        "dok_WartNetto": "14030.0000"
+                    },
+                    "matched_tokens": [
+                        "dostawy:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69819,
+                        "dok_NrPelny": "WZ 3318/07/2026",
+                        "dok_NrPelnyOryg": "",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-20 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "RW739\r\nzakup zewntrzny \r\nAdres dostawy: Adam Halama\r\nKowalowo 7\r\n56-210, Kowalowo\r\nTel.: 662432111- 1 szt. DY61 - DEYE SUN-10K-SG05LP3-EU WZ 1428/03/2026\r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji:\r\n- 6 szt. MF0206 - TCL 615Wp HSM-ND66-GR615 N-Type bifacial (SFR)\r\n  zakup zewntrzny\r\n- 1 szt. DY61 - DEYE SUN-10K-SG05LP3-EU\r\n  WZ 1428/03/2026\r\nWysyka bezporednia MKRI260070808 SUUS (magazyn energii Felicity FLA48460TG2-EU 23,5 KWHLV)",
+                        "dok_WartNetto": "3477.2100"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69729,
+                        "dok_NrPelny": "WZ 3299/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3666/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Mariusz Modozeniec \r\nytnia 12 \r\n77-300 Czuchw, Czuchw \r\nTel.: 608641881 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. ESPDCAC021V20 - Skrzynka EG DCAC 3F 20A 2MPPT VCX WZ 1743/04/2026\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014012619",
+                        "dok_WartNetto": "16514.0500"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69726,
+                        "dok_NrPelny": "WZ 3298/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3694/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Boena Ruszkowska \r\nOstrowska 23 \r\n07-300, Stare Lubiejewo \r\nTel.: 782364560 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014010852",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69725,
+                        "dok_NrPelny": "WZ 3297/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3694/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-17 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Waldemar Tadla \r\nNowe Lubiejewo 19 \r\n07-300, Nowe Lubiejewo \r\nTel.: 724369029 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014010897",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "magazynu",
+                        "(Magazyn",
+                        "realizacji:",
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69648,
+                        "dok_NrPelny": "WZ 3279/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3669/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Wodzimierz Buziak \r\nBiechowo 40 \r\n62-320, Biechowo \r\nTel.: 607458777 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006590",
+                        "dok_WartNetto": "3977.9300"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69647,
+                        "dok_NrPelny": "WZ 3278/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3667/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Marek Wal \r\nRoki 12 \r\n62-320, Biechowo \r\nTel.: 784658490 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006564",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                },
+                {
+                    "wz": {
+                        "dok_Id": 69646,
+                        "dok_NrPelny": "WZ 3277/07/2026",
+                        "dok_NrPelnyOryg": "ZK 3664/07/2026",
+                        "dok_Status": 1,
+                        "dok_DataWyst": {
+                            "date": "2026-07-16 00:00:00.000000",
+                            "timezone_type": 3,
+                            "timezone": "Europe/Berlin"
+                        },
+                        "dok_Uwagi": "Adres dostawy: Jadwiga Rosiak \r\nGrabowiec 28/1 \r\n98-200, Sieradz \r\nTel.: 539912525 \r\nTowary z magazynu wasnego klienta (Magazyn Gama) - dooy przy realizacji: \r\n- 1 szt. CW-43 - FoxESS Licznik 1-fazowy CHINT DDSU666 zakup zewntrzny\r\nPrzewonik: Hellmann\r\nNr przesyki: 1014006623",
+                        "dok_WartNetto": "5711.9000"
+                    },
+                    "matched_tokens": [
+                        "1-fazowy"
+                    ],
+                    "linked_to_this_zk": false
+                }
+            ],
+            "diag": {
+                "state": "success",
+                "order_ref": "ZK 3737/07/2026",
+                "order_id": 69850,
+                "order_status": 7,
+                "order_status_label": "z rezerwacj─ů (otwarte / bez WZ lub zrealizowane z rez.)",
+                "status_ex": 0,
+                "status_ex_label": "nie zrealizowane",
+                "header_issue_ref": "",
+                "header_issue_id": 0,
+                "own_issue_refs": [],
+                "valid_issue_refs": [],
+                "invalid_issue_refs": [],
+                "issue_coverage_complete": false,
+                "stale": false,
+                "can_clear": false,
+                "can_link_header": false,
+                "can_repair_phantom_oryg": false,
+                "can_reopen_for_wz": false,
+                "issues": [],
+                "message": "ZK nie ma nag┼é├│wka ani WZ ÔÇö mo┼╝na wystawi─ç nowe WZ."
+            }
+        }
+    },
+    "wz_by_uwagi_hits": [],
+    "gama_wz_july_2026": [],
+    "summary": {
+        "message": "Por├│wnaj wz_valid (w┼éasne WZ) vs wz_found_by_uwagi (po adresie w uwagach)."
+    }
+}

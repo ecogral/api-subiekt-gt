@@ -236,7 +236,8 @@ $jsonResult = $result !== null
 <div class="wrap">
     <h1>ZK ↔ WZ — panel SQL</h1>
     <p class="sub">Działa <strong>bez Sfery COM</strong> — nie zużywa licencji stanowiska. Po odpięciu usuń WZ ręcznie w Subiekcie GT.
-        <a href="panel-fs-kfs.php">Panel FS → KFS (korekta faktury)</a>
+        <a href="panel-zk-wz-stale.php">Panel błędnych nagłówków ZK→WZ (Sfera)</a>
+        · <a href="panel-fs-kfs.php">Panel FS → KFS (korekta faktury)</a>
         · <a href="panel-wz-invoice.php">Panel WZ → FS (dokument automatyczny)</a>
         · <a href="panel-stany-rezerwacja.php">Panel rezerwacji magazynowych</a></p>
 

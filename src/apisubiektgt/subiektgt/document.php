@@ -1356,6 +1356,23 @@ class Document extends SubiektObj
             $orderSnapshot = $order->get();
             $orderRef = isset($orderSnapshot['order_ref']) ? (string) $orderSnapshot['order_ref'] : $orderRef;
             $orderId = (int) ($orderSnapshot['gt_id'] ?? 0);
+            if ($orderId > 0 && Order::clearStaleOrderHeaderIssueLinkSql($orderId, $orderRef)) {
+                Logger::getInstance()->log(
+                    'api',
+                    'createIssueFromOrder: wyczyszczono błędny nagłówek ZK→WZ dla ' . $orderRef,
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+                $order = Order::loadExistingByRefVariants($this->subiektGt, $this->documentDetail);
+                if ($order === null) {
+                    return [
+                        'state' => 'error',
+                        'message' => 'Nie można ponownie wczytać ZK po czyszczeniu powiązania: ' . $orderRef,
+                        'error' => 'ORDER_RELOAD_FAILED',
+                    ];
+                }
+                $order->setCfg($this->cfg);
+            }
             $prep = $order->prepareOrderForIssueFromApi();
             Logger::getInstance()->log(
                 'api',
@@ -1607,6 +1624,17 @@ class Document extends SubiektObj
 
             $wzResult = $order->enrichIssueResultPayload($wzResult);
             $wzResult = $this->attachFsCleanupToIssuePayload($wzResult, $docRef);
+
+            // Po WZ GT czasem zostawia status 6 („Nie rezerwuj…”) mimo WZ — dociśnij do 8.
+            if ($closeOrder) {
+                $warehouseId = $this->cfg ? (int) $this->cfg->getWarehouse() : 1;
+                if ($warehouseId <= 0) {
+                    $warehouseId = 1;
+                }
+                $fulfillmentRepair = Order::ensureOrderFulfilledAfterIssueSql($orderRef, $warehouseId);
+                $wzResult['order_fulfillment_repair'] = $fulfillmentRepair;
+                $wzResult = $order->enrichIssueResultPayload($wzResult);
+            }
 
             Logger::getInstance()->log(
                 'api',
