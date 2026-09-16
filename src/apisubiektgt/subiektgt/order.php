@@ -7,6 +7,8 @@ use Exception;
 use APISubiektGT\Logger;
 use APISubiektGT\MSSql;
 use APISubiektGT\Helper;
+use APISubiektGT\DocumentComments;
+use APISubiektGT\DocumentCustomField;
 use APISubiektGT\SubiektGT\SubiektObj;
 use APISubiektGT\SubiektGT\Product;
 use APISubiektGT\SubiektGT\Customer;
@@ -225,7 +227,16 @@ class Order extends SubiektObj
     protected function setGtObject()
     {
         $this->orderGt->Tytul = $this->reference;
-        $this->orderGt->Uwagi = $this->comments;
+        DocumentComments::applyToComDocument(
+            $this->orderGt,
+            (string) $this->comments,
+            DocumentComments::isExtEnabled($this->cfg)
+        );
+        DocumentCustomField::applyToComOrderIfEnabled(
+            $this->orderGt,
+            $this->cfg,
+            (string) $this->comments
+        );
         $this->orderGt->Rezerwacja = $this->reservation;
         $this->orderGt->NumerOryginalny = $this->reference;
         // switch ($this->pay_type) {
@@ -355,7 +366,10 @@ class Order extends SubiektObj
         $this->reference = $o['dok_NrPelnyOryg'] ?? '';
         $this->doc_type = $this->doc_types[$this->orderGt->Typ];
         $this->selling_doc = $o['pow_NrPelny'] ?? '';
-        $this->comments = $o['dok_Uwagi'] ?? '';
+        $this->comments = DocumentComments::mergeWin(
+            (string) ($o['dok_Uwagi'] ?? ''),
+            DocumentComments::isExtEnabled($this->cfg) ? (string) ($o['dok_UwagiExt'] ?? '') : ''
+        );
         $this->order_ref = $o['dok_NrPelny'] ?? '';
         $this->reservation = (bool) ($this->orderGt->Rezerwacja ?? false);
         $this->state = $o['dok_Status'] ?? 0;
@@ -413,7 +427,7 @@ class Order extends SubiektObj
 
     protected function getOrderById($id)
     {
-        $sql = "SELECT d.dok_Id, d.dok_NrPelnyOryg, d.dok_Uwagi, d.dok_NrPelny, d.dok_Status, d.dok_StatusEx,
+        $sql = "SELECT d.dok_Id, d.dok_NrPelnyOryg, d.dok_Uwagi, d.dok_UwagiExt, d.dok_NrPelny, d.dok_Status, d.dok_StatusEx,
                        d.dok_WartBrutto, d.dok_WartNetto, d.dok_WartTwNetto, d.dok_WartMag,
                        (d.dok_WartTwNetto - d.dok_WartMag) AS dok_PrognozowanyZysk,
                        d.dok_TerminRealizacji, d.dok_PrzetworzonoZKwZD,
@@ -3678,9 +3692,35 @@ class Order extends SubiektObj
     }
 
     /**
+     * Ilość pozycji w jednostce podstawowej (jak tw_Stan.st_Stan / st_StanRez).
+     * ob_Ilosc = JM z dokumentu (np. m), ob_IloscMag = JM podstawowa (np. km).
+     *
+     * @param string $posAlias alias dok_Pozycja
+     * @return string wyrażenie SQL
+     */
+    protected static function sqlPositionQtyInBaseUnit($posAlias = 'p')
+    {
+        $a = preg_replace('/[^a-zA-Z0-9_]/', '', (string) $posAlias);
+        if ($a === '') {
+            $a = 'p';
+        }
+
+        // Preferuj Mag (GT); gdy puste — Ilosc * przelicznik JM (jm_Przelicznik: ile JM podstawowej w 1 JM pozycji).
+        return "CASE
+                    WHEN ISNULL({$a}.ob_IloscMag, 0) > 0.00001 THEN CAST({$a}.ob_IloscMag AS float)
+                    ELSE CAST({$a}.ob_Ilosc AS float) * ISNULL((
+                        SELECT TOP 1 NULLIF(jm.jm_Przelicznik, 0)
+                        FROM tw_JednMiary jm
+                        WHERE jm.jm_IdTowar = {$a}.ob_TowId
+                          AND LTRIM(RTRIM(jm.jm_IdJednMiary)) = LTRIM(RTRIM(ISNULL({$a}.ob_Jm, '')))
+                    ), 1)
+                END";
+    }
+
+    /**
      * Podzapytanie: oczekiwana rezerwacja magazynowa per towar/magazyn.
-     * W tym GT otwarte z rezerwacją = status 7 bez WZ (ob_Ilosc; IloscMag bywa pełne).
-     * Status 5 bez WZ = legacy po błędnych naprawach API.
+     * W tym GT otwarte z rezerwacją = status 7 bez WZ.
+     * Ilość w JM podstawowej (ob_IloscMag) — zgodnie z tw_Stan.st_StanRez / Informator.
      *
      * @param int $warehouseId
      * @return string SQL bez aliasu zewnętrznego (kolumny: product_id, warehouse_id, expected_rez)
@@ -3694,6 +3734,7 @@ class Order extends SubiektObj
 
         $goodsFilter = self::sqlWarehouseGoodsPositionsOnly('p');
         $reservedOpen7 = self::sqlOrderReservedOpenWithoutIssuePredicate('d');
+        $qtyBase = self::sqlPositionQtyInBaseUnit('p');
 
         return "SELECT x.product_id,
                        x.warehouse_id,
@@ -3701,7 +3742,7 @@ class Order extends SubiektObj
                 FROM (
                     SELECT p.ob_TowId AS product_id,
                            ISNULL(NULLIF(p.ob_MagId, 0), {$warehouseId}) AS warehouse_id,
-                           p.ob_Ilosc AS qty
+                           ({$qtyBase}) AS qty
                     FROM dok_Pozycja p
                     INNER JOIN dok__Dokument d ON d.dok_Id = p.ob_DokHanId
                         AND d.dok_Typ = 16
@@ -3714,7 +3755,7 @@ class Order extends SubiektObj
 
                     SELECT p.ob_TowId AS product_id,
                            ISNULL(NULLIF(p.ob_MagId, 0), {$warehouseId}) AS warehouse_id,
-                           p.ob_Ilosc AS qty
+                           ({$qtyBase}) AS qty
                     FROM dok_Pozycja p
                     INNER JOIN dok__Dokument d ON d.dok_Id = p.ob_DokHanId
                         AND d.dok_Typ = 16
@@ -3761,8 +3802,9 @@ class Order extends SubiektObj
     }
 
     /**
-     * Dla ZK status 7 bez WZ z rezerwacją GT ustawia ob_IloscMag = ob_Ilosc
-     * (Informator „Ilość” bierze stąd; samo COM Rezerwacja bez IloscMag daje Ilość=0).
+     * Dla ZK status 7 bez WZ z rezerwacją GT ustawia ob_IloscMag w JM podstawowej.
+     * (Informator „Ilość”/rezerwacja bierze stąd; Mag=0 przy rezerwacji = Ilość 0 w Informatorze).
+     * NIE ustawiać Mag=Ilosc przy innej JM (np. 500 m → 0.5 km).
      *
      * @param int $orderId
      * @return int liczba zaktualizowanych pozycji
@@ -3783,12 +3825,13 @@ class Order extends SubiektObj
             return 0;
         }
 
+        // Tylko gdy Mag puste/zerowe — uzupełnij z JM (Ilosc * przelicznik), nie kopiuj Ilosc 1:1.
         $countRows = MSSql::getInstance()->query(
             "SELECT COUNT(*) AS cnt
              FROM dok_Pozycja p
              WHERE p.ob_DokHanId = {$orderId}
                AND p.ob_Ilosc > 0.00001
-               AND ABS(p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0)) > 0.00001
+               AND ISNULL(p.ob_IloscMag, 0) <= 0.00001
                AND (p.ob_TowRodzaj IS NULL OR p.ob_TowRodzaj <> " . self::TOW_RODZAJ_USLUGA . ")"
         );
         $toFix = is_array($countRows) && !empty($countRows) ? (int) ($countRows[0]['cnt'] ?? 0) : 0;
@@ -3796,12 +3839,18 @@ class Order extends SubiektObj
             return 0;
         }
 
-        $updateSql = "UPDATE dok_Pozycja
-             SET ob_IloscMag = ob_Ilosc
-             WHERE ob_DokHanId = {$orderId}
-               AND ob_Ilosc > 0.00001
-               AND ABS(ob_Ilosc - ISNULL(ob_IloscMag, 0)) > 0.00001
-               AND (ob_TowRodzaj IS NULL OR ob_TowRodzaj <> " . self::TOW_RODZAJ_USLUGA . ")";
+        $updateSql = "UPDATE p
+             SET p.ob_IloscMag = CAST(p.ob_Ilosc AS float) * ISNULL((
+                    SELECT TOP 1 NULLIF(jm.jm_Przelicznik, 0)
+                    FROM tw_JednMiary jm
+                    WHERE jm.jm_IdTowar = p.ob_TowId
+                      AND LTRIM(RTRIM(jm.jm_IdJednMiary)) = LTRIM(RTRIM(ISNULL(p.ob_Jm, '')))
+                 ), 1)
+             FROM dok_Pozycja p
+             WHERE p.ob_DokHanId = {$orderId}
+               AND p.ob_Ilosc > 0.00001
+               AND ISNULL(p.ob_IloscMag, 0) <= 0.00001
+               AND (p.ob_TowRodzaj IS NULL OR p.ob_TowRodzaj <> " . self::TOW_RODZAJ_USLUGA . ")";
 
         if (MSSql::isComWritesOnly()) {
             MSSql::withSqlWriteFallback(function () use ($updateSql) {
@@ -3814,7 +3863,7 @@ class Order extends SubiektObj
         Logger::getInstance()->log(
             'api',
             'syncReservedOpenIloscMagSql: order_id=' . $orderId
-                . ' pozycji=' . $toFix . ' (IloscMag=Ilosc jak ręczne ZK z rezerwacją)',
+                . ' pozycji=' . $toFix . ' (IloscMag z JM podstawowej / przelicznik)',
             __CLASS__ . '::syncReservedOpenIloscMagSql',
             __LINE__
         );
@@ -3823,7 +3872,8 @@ class Order extends SubiektObj
     }
 
     /**
-     * ZK status 7 bez WZ z niepełnym IloscMag — Informator pokazuje Ilość=0 mimo rezerwacji.
+     * ZK status 7 bez WZ z Mag≈0 mimo Ilosc>0 — Informator bez ilości zarezerwowanej.
+     * Różnica Ilosc≠Mag przy innej JM (500 m vs 0.5 km) NIE jest błędem.
      *
      * @param array<int, string>|null $productSymbols
      * @return array<int, array{order_ref:string, order_id:int, symbol:string, ilosc:float, mag:float}>
@@ -3839,13 +3889,14 @@ class Order extends SubiektObj
                     d.dok_NrPelny AS order_ref,
                     t.tw_Symbol AS symbol,
                     CAST(p.ob_Ilosc AS float) AS ilosc,
-                    CAST(ISNULL(p.ob_IloscMag, 0) AS float) AS mag
+                    CAST(ISNULL(p.ob_IloscMag, 0) AS float) AS mag,
+                    LTRIM(RTRIM(ISNULL(p.ob_Jm, ''))) AS jm
              FROM dok__Dokument d
              INNER JOIN dok_Pozycja p ON p.ob_DokHanId = d.dok_Id
              INNER JOIN tw__Towar t ON t.tw_Id = p.ob_TowId
              WHERE {$reservedOpen7}
                AND p.ob_Ilosc > 0.00001
-               AND ABS(p.ob_Ilosc - ISNULL(p.ob_IloscMag, 0)) > 0.00001
+               AND ISNULL(p.ob_IloscMag, 0) <= 0.00001
                {$goodsFilter}
                {$symbolFilter}
              ORDER BY d.dok_Id DESC, t.tw_Symbol"
@@ -3866,6 +3917,7 @@ class Order extends SubiektObj
                 'symbol' => trim((string) ($row['symbol'] ?? '')),
                 'ilosc' => (float) ($row['ilosc'] ?? 0),
                 'mag' => (float) ($row['mag'] ?? 0),
+                'jm' => trim((string) ($row['jm'] ?? '')),
             );
         }
 
@@ -3898,9 +3950,9 @@ class Order extends SubiektObj
                 'count_orders' => count($orderIds),
                 'items' => array_slice($incomplete, 0, 200),
                 'message' => empty($orderIds)
-                    ? 'Brak ZK z niepełnym IloscMag (Informator OK).'
+                    ? 'Brak ZK z pustym IloscMag (Informator OK).'
                     : ($dryRun
-                        ? 'Podgląd — ' . count($orderIds) . ' ZK wymaga IloscMag=Ilosc (Informator Ilość).'
+                        ? 'Podgląd — ' . count($orderIds) . ' ZK wymaga uzupełnienia IloscMag (JM podstawowa).'
                         : 'Brak zmian.'),
             );
         }
@@ -3921,7 +3973,7 @@ class Order extends SubiektObj
             'count_orders' => count($fixedOrders),
             'count_positions' => $fixedPositions,
             'orders' => $fixedOrders,
-            'message' => 'Ustawiono IloscMag=Ilosc na ' . count($fixedOrders)
+            'message' => 'Uzupełniono IloscMag (JM podstawowa) na ' . count($fixedOrders)
                 . ' ZK — odśwież Informator w GT (F5).',
         );
     }
@@ -3996,14 +4048,69 @@ class Order extends SubiektObj
             $warehouseId = 1;
         }
 
+        // COM ustawia tylko flagę Rezerwacja na ZK — w tym GT nie zawsze aktualizuje tw_Stan.st_StanRez.
+        // Zawsze dograj liczby w SQL (także przy use_com_writes_only).
         if (OrderComWriter::comWritesOnly() && !OrderComWriter::allowSqlWriteFallback()) {
-            // null = COM dopiero przy apply; podgląd (dryRun) to sam odczyt SQL.
-            return OrderComWriter::syncStockReservationsFromOrders(
-                null,
-                $warehouseId,
-                $dryRun,
-                $productSymbols
+            $comResult = array('state' => 'skipped', 'message' => 'COM pominięty (podgląd/SQL-only numbers).');
+            if (!$dryRun) {
+                try {
+                    $comResult = OrderComWriter::syncStockReservationsFromOrders(
+                        OrderComWriter::resolveSubiektGt(),
+                        $warehouseId,
+                        false,
+                        $productSymbols
+                    );
+                } catch (\Throwable $e) {
+                    $comResult = array(
+                        'state' => 'error',
+                        'message' => 'COM: ' . $e->getMessage(),
+                    );
+                    Logger::getInstance()->log(
+                        'api',
+                        'syncStockReservationsFromOrdersSql: COM pominięty — ' . $e->getMessage(),
+                        __CLASS__ . '::syncStockReservationsFromOrdersSql',
+                        __LINE__
+                    );
+                }
+            }
+
+            $sqlResult = MSSql::withSqlWriteFallback(function () use ($warehouseId, $dryRun, $productSymbols) {
+                return self::syncStockReservationsFromOrdersSqlDirect($warehouseId, $dryRun, $productSymbols);
+            });
+
+            if ($dryRun) {
+                return $sqlResult;
+            }
+
+            return array(
+                'state' => (string) ($sqlResult['state'] ?? 'success'),
+                'dry_run' => false,
+                'warehouse_id' => $warehouseId,
+                'fixed_count' => (int) ($sqlResult['fixed_count'] ?? 0),
+                'fixed_items' => $sqlResult['fixed_items'] ?? array(),
+                'remaining_count' => (int) ($sqlResult['remaining_count'] ?? 0),
+                'remaining_items' => $sqlResult['remaining_items'] ?? array(),
+                'com' => $comResult,
+                'message' => 'COM Rezerwacja (opcjonalnie) + st_StanRez z SQL wg ZK status 7 bez WZ. Odśwież GT (F5).',
             );
+        }
+
+        return self::syncStockReservationsFromOrdersSqlDirect($warehouseId, $dryRun, $productSymbols);
+    }
+
+    /**
+     * Bezpośredni sync st_StanRez (UPDATE tw_Stan) wg ZK status 7 bez WZ (+ legacy 5).
+     *
+     * @param int $warehouseId
+     * @param bool $dryRun
+     * @param array<int, string>|null $productSymbols
+     * @return array
+     */
+    protected static function syncStockReservationsFromOrdersSqlDirect($warehouseId = 1, $dryRun = true, array $productSymbols = null)
+    {
+        $warehouseId = (int) $warehouseId;
+        if ($warehouseId <= 0) {
+            $warehouseId = 1;
         }
 
         $mismatches = self::findStockReservationMismatchesSql($warehouseId, $productSymbols);
@@ -4043,7 +4150,7 @@ class Order extends SubiektObj
 
         Logger::getInstance()->log(
             'api',
-            'syncStockReservationsFromOrdersSql: mag=' . $warehouseId
+            'syncStockReservationsFromOrdersSqlDirect: mag=' . $warehouseId
                 . ', fixed=' . count($mismatches)
                 . ', remaining=' . count($after),
             __CLASS__ . '->' . __FUNCTION__,
@@ -4084,17 +4191,15 @@ class Order extends SubiektObj
                 null
             );
             $comState = (string) ($comResult['state'] ?? '');
-            if ($comState === 'closed_order') {
-                $row = self::getOrderRowByIdSql($orderId);
-                $sqlState = $row !== null ? (int) ($row['dok_Status'] ?? 0) : 0;
-                if (!self::isOrderStatusOpen($sqlState)) {
-                    return $comResult;
-                }
 
+            // Po WZ ZK jest status 8 (closed_order) — wcześniej tu wracaliśmy BEZ SQL,
+            // więc st_StanRez zostawał rozjechany (GT zwalnia rez. tego ZK, a inne otwarte ZK
+            // nie były doliczane / przeliczane). Zawsze dograj st_StanRez w SQL dla towarów ZK.
+            if ($comState === 'closed_order') {
                 Logger::getInstance()->log(
                     'api',
-                    'syncStockReservationsForOrderProductsSql: COM closed_order, SQL status='
-                        . $sqlState . ' — SQL fallback dla order_id=' . $orderId,
+                    'syncStockReservationsForOrderProductsSql: ZK zamknięte order_id='
+                        . $orderId . ' — SQL sync st_StanRez dla towarów z tego ZK',
                     __CLASS__ . '::syncStockReservationsForOrderProductsSql',
                     __LINE__
                 );
@@ -4105,8 +4210,10 @@ class Order extends SubiektObj
             });
             $sqlState = (string) ($sqlResult['state'] ?? '');
             $mergedState = ($sqlState === 'success' || $sqlState === 'noop')
-                ? ($comState === 'success' || $comState === 'noop' ? $sqlState : 'success')
-                : ($comState === 'success' ? 'partial' : $comState);
+                ? (($comState === 'success' || $comState === 'noop' || $comState === 'closed_order')
+                    ? ($sqlState === 'noop' && $comState === 'closed_order' ? 'success' : $sqlState)
+                    : 'success')
+                : ($comState === 'success' || $comState === 'closed_order' ? 'partial' : $comState);
 
             return array(
                 'state' => $mergedState !== '' ? $mergedState : 'partial',
@@ -4114,7 +4221,9 @@ class Order extends SubiektObj
                 'reservation' => (bool) ($comResult['reservation'] ?? true),
                 'com' => $comResult,
                 'sql_stan_rez' => $sqlResult,
-                'message' => 'COM rezerwacja ZK + synchronizacja st_StanRez w SQL.',
+                'message' => $comState === 'closed_order'
+                    ? 'ZK zamknięte — przeliczono st_StanRez w SQL dla towarów z ZK.'
+                    : 'COM rezerwacja ZK + synchronizacja st_StanRez w SQL.',
             );
         }
 
@@ -5032,12 +5141,20 @@ class Order extends SubiektObj
 
         if ($status === 8 && ($statusEx & 4) !== 0) {
             $resSync = self::syncStockReservationsForOrderProductsSql($orderId, (int) $warehouseId);
+            $kfsPrep = array();
+            foreach (self::getIssueRefsForOrder($orderRef, $orderId) as $issueRef) {
+                $one = self::clearIssueZkLinksBlockingKfsSql($issueRef, true);
+                if (($one['state'] ?? '') === 'success') {
+                    $kfsPrep[] = $one;
+                }
+            }
             return array(
                 'state' => 'noop',
                 'order_ref' => $orderRef,
                 'zk_status' => $status,
                 'status_ex' => $statusEx,
                 'reservation_sync' => $resSync,
+                'kfs_links_cleanup' => $kfsPrep,
                 'message' => 'ZK ma już status 8 i pełny ptaszek.',
             );
         }
@@ -5045,6 +5162,15 @@ class Order extends SubiektObj
         $repair = self::repairOrderFulfilledCheckmarkSql($orderRef);
         $resSync = self::syncStockReservationsForOrderProductsSql($orderId, (int) $warehouseId);
         $repair['reservation_sync'] = $resSync;
+
+        $kfsPrep = array();
+        foreach (self::getIssueRefsForOrder($orderRef, $orderId) as $issueRef) {
+            $one = self::clearIssueZkLinksBlockingKfsSql($issueRef, true);
+            if (($one['state'] ?? '') === 'success') {
+                $kfsPrep[] = $one;
+            }
+        }
+        $repair['kfs_links_cleanup'] = $kfsPrep;
 
         Logger::getInstance()->log(
             'api',
@@ -7493,6 +7619,7 @@ class Order extends SubiektObj
 
     /**
      * Czyści ob_DoId→ZK na pozycjach i dok_NrPelnyOryg na WZ po wystawieniu FS (przygotowanie do KFS).
+     * Zawsze SQL — COM/Sfera zwykle nie mapuje DoId na ob_DoId i zostawia blokadę KFS.
      *
      * @param string $invoiceRef
      * @param bool $apply false = podgląd
@@ -7500,20 +7627,13 @@ class Order extends SubiektObj
      */
     public static function prepareSalesInvoiceForCorrectionSql($invoiceRef, $apply = false)
     {
-        if (OrderComWriter::comWritesOnly()) {
-            return OrderComWriter::prepareSalesInvoiceForCorrection(
-                OrderComWriter::resolveSubiektGt(),
-                $invoiceRef,
-                $apply
-            );
-        }
-
         $diag = self::diagnoseSalesInvoiceForCorrectionSql($invoiceRef);
         if (($diag['state'] ?? '') !== 'success') {
             return $diag;
         }
 
         $fsId = (int) ($diag['fs']['dok_Id'] ?? 0);
+        $invoiceRefResolved = (string) ($diag['invoice_ref'] ?? $invoiceRef);
         if ($fsId <= 0) {
             return array(
                 'state' => 'error',
@@ -7544,35 +7664,148 @@ class Order extends SubiektObj
             ));
         }
 
-        MSSql::getInstance()->query(
-            "UPDATE p
-             SET p.ob_DoId = NULL
+        return MSSql::withSqlWriteFallback(function () use ($fsId, $invoiceRefResolved, $preview) {
+            MSSql::getInstance()->query(
+                "UPDATE p
+                 SET p.ob_DoId = NULL
+                 FROM dok_Pozycja p
+                 INNER JOIN dok_Pozycja zk_p ON zk_p.ob_Id = p.ob_DoId
+                 INNER JOIN dok__Dokument zk ON zk.dok_Id = zk_p.ob_DokHanId AND zk.dok_Typ = 16
+                 WHERE p.ob_DokHanId = {$fsId}
+                    OR p.ob_DokMagId IN (
+                        SELECT dok_Id FROM dok__Dokument WHERE dok_Typ = 11 AND dok_DoDokId = {$fsId}
+                    )"
+            );
+
+            MSSql::getInstance()->query(
+                "UPDATE dok__Dokument
+                 SET dok_NrPelnyOryg = ''
+                 WHERE dok_Typ = 11 AND dok_DoDokId = {$fsId}
+                   AND LTRIM(RTRIM(ISNULL(dok_NrPelnyOryg, ''))) <> ''"
+            );
+
+            $after = self::diagnoseSalesInvoiceForCorrectionSql($invoiceRefResolved);
+            $stillBlocked = !empty($after['needs_fix']);
+
+            return array(
+                'state' => $stillBlocked ? 'error' : 'success',
+                'invoice_ref' => $invoiceRefResolved,
+                'applied' => true,
+                'changed' => $preview,
+                'after' => $after,
+                'message' => $stillBlocked
+                    ? 'SQL wykonał UPDATE, ale nadal są powiązania ZK — sprawdź FS/WZ w GT.'
+                    : 'Naprawiono powiązania pod korektę KFS. Zamknij FS/WZ w GT (F5), potem wystaw korektę do FS.',
+            );
+        });
+    }
+
+    /**
+     * Po WZ (i opcjonalnie FS): usuń powiązania ZK blokujące późniejszą KFS.
+     * Gdy FS jeszcze nie ma — czyści WZ (ob_DoId→ZK, dok_NrPelnyOryg), żeby faktura z GT ich nie odziedziczyła.
+     *
+     * @param string $issueRef numer WZ
+     * @param bool $apply
+     * @return array
+     */
+    public static function clearIssueZkLinksBlockingKfsSql($issueRef, $apply = true)
+    {
+        $issueRef = trim((string) $issueRef);
+        if ($issueRef === '') {
+            return array(
+                'state' => 'noop',
+                'issue_ref' => '',
+                'message' => 'Brak numeru WZ.',
+            );
+        }
+
+        $fsRef = self::findSalesInvoiceRefForIssueSql($issueRef);
+        if ($fsRef !== '') {
+            $cleanup = self::prepareSalesInvoiceForCorrectionSql($fsRef, $apply);
+            return array_merge($cleanup, array(
+                'issue_ref' => $issueRef,
+                'invoice_ref' => $fsRef,
+                'scope' => 'fs_and_wz',
+            ));
+        }
+
+        $wzRow = self::getIssueDocumentRowByRef($issueRef);
+        if ($wzRow === null) {
+            return array(
+                'state' => 'not_found',
+                'issue_ref' => $issueRef,
+                'message' => 'Nie znaleziono WZ.',
+            );
+        }
+
+        $wzId = (int) ($wzRow['dok_Id'] ?? 0);
+        $oryg = trim((string) ($wzRow['dok_NrPelnyOryg'] ?? ''));
+
+        $linked = MSSql::getInstance()->query(
+            "SELECT COUNT(*) AS cnt
              FROM dok_Pozycja p
              INNER JOIN dok_Pozycja zk_p ON zk_p.ob_Id = p.ob_DoId
              INNER JOIN dok__Dokument zk ON zk.dok_Id = zk_p.ob_DokHanId AND zk.dok_Typ = 16
-             WHERE p.ob_DokHanId = {$fsId}
-                OR p.ob_DokMagId IN (
-                    SELECT dok_Id FROM dok__Dokument WHERE dok_Typ = 11 AND dok_DoDokId = {$fsId}
-                )"
+             WHERE p.ob_DokMagId = {$wzId}"
+        );
+        $linkedCnt = 0;
+        if (is_array($linked) && !empty($linked[0]) && !isset($linked[0]['SQLSTATE'])) {
+            $linkedCnt = (int) ($linked[0]['cnt'] ?? 0);
+        }
+
+        $needsFix = ($linkedCnt > 0) || ($oryg !== '' && stripos($oryg, 'ZK') === 0);
+        if (!$needsFix) {
+            return array(
+                'state' => 'noop',
+                'issue_ref' => $issueRef,
+                'scope' => 'wz_only',
+                'message' => 'WZ bez powiązań ZK blokujących KFS.',
+            );
+        }
+
+        $preview = array(
+            'wz_ref' => $issueRef,
+            'zk_linked_positions' => $linkedCnt,
+            'dok_NrPelnyOryg' => $oryg,
         );
 
-        MSSql::getInstance()->query(
-            "UPDATE dok__Dokument
-             SET dok_NrPelnyOryg = ''
-             WHERE dok_Typ = 11 AND dok_DoDokId = {$fsId}
-               AND LTRIM(RTRIM(ISNULL(dok_NrPelnyOryg, ''))) <> ''"
-        );
+        if (!$apply) {
+            return array(
+                'state' => 'preview',
+                'issue_ref' => $issueRef,
+                'scope' => 'wz_only',
+                'applied' => false,
+                'would_change' => $preview,
+                'message' => 'Podgląd — WZ wymaga wyczyszczenia linków ZK przed/po FS.',
+            );
+        }
 
-        $after = self::diagnoseSalesInvoiceForCorrectionSql((string) ($diag['invoice_ref'] ?? $invoiceRef));
+        return MSSql::withSqlWriteFallback(function () use ($wzId, $issueRef, $preview) {
+            MSSql::getInstance()->query(
+                "UPDATE p
+                 SET p.ob_DoId = NULL
+                 FROM dok_Pozycja p
+                 INNER JOIN dok_Pozycja zk_p ON zk_p.ob_Id = p.ob_DoId
+                 INNER JOIN dok__Dokument zk ON zk.dok_Id = zk_p.ob_DokHanId AND zk.dok_Typ = 16
+                 WHERE p.ob_DokMagId = {$wzId}"
+            );
 
-        return array(
-            'state' => 'success',
-            'invoice_ref' => (string) ($diag['invoice_ref'] ?? $invoiceRef),
-            'applied' => true,
-            'changed' => $preview,
-            'after' => $after,
-            'message' => 'Naprawiono powiązania pod korektę KFS. Zamknij FS/WZ w GT (F5), potem wystaw korektę do FS.',
-        );
+            MSSql::getInstance()->query(
+                "UPDATE dok__Dokument
+                 SET dok_NrPelnyOryg = ''
+                 WHERE dok_Id = {$wzId} AND dok_Typ = 11
+                   AND LTRIM(RTRIM(ISNULL(dok_NrPelnyOryg, ''))) <> ''"
+            );
+
+            return array(
+                'state' => 'success',
+                'issue_ref' => $issueRef,
+                'scope' => 'wz_only',
+                'applied' => true,
+                'changed' => $preview,
+                'message' => 'Wyczyszczono linki ZK na WZ — FS z GT nie odziedziczy blokady KFS.',
+            );
+        });
     }
 
     /**
@@ -7633,6 +7866,7 @@ class Order extends SubiektObj
 
     /**
      * Gdy WZ ma już FS — usuń linki ZK blokujące KFS (np. po fakturowaniu ręcznym w GT).
+     * Bez FS — czyści WZ tylko gdy powiązane ZK jest już zrealizowane (status 8).
      *
      * @param string $issueRef
      * @return array
@@ -7649,23 +7883,32 @@ class Order extends SubiektObj
         }
 
         $fsRef = self::findSalesInvoiceRefForIssueSql($issueRef);
-        if ($fsRef === '') {
+        if ($fsRef !== '') {
+            $cleanup = self::cleanupSalesInvoiceLinksAfterFsSql(
+                $fsRef,
+                'issue:' . $issueRef
+            );
+            return array_merge($cleanup, array(
+                'issue_ref' => $issueRef,
+                'invoice_ref' => $fsRef,
+                'scope' => 'fs_and_wz',
+            ));
+        }
+
+        $orderRef = self::resolveOrderRefForIssueSql($issueRef);
+        $zkRow = $orderRef !== '' ? self::getOrderRowByRefSql($orderRef) : null;
+        $zkStatus = $zkRow !== null ? (int) ($zkRow['dok_Status'] ?? 0) : 0;
+        if ($zkStatus !== 8) {
             return array(
                 'state' => 'noop',
                 'issue_ref' => $issueRef,
-                'message' => 'WZ nie ma jeszcze powiązanej FS — pomijam czyszczenie.',
+                'order_ref' => $orderRef,
+                'zk_status' => $zkStatus,
+                'message' => 'WZ bez FS i ZK nie jest status 8 — zostawiam linki do domknięcia.',
             );
         }
 
-        $cleanup = self::cleanupSalesInvoiceLinksAfterFsSql(
-            $fsRef,
-            'issue:' . $issueRef
-        );
-
-        return array_merge($cleanup, array(
-            'issue_ref' => $issueRef,
-            'invoice_ref' => $fsRef,
-        ));
+        return self::clearIssueZkLinksBlockingKfsSql($issueRef, true);
     }
 
     /**
@@ -8313,6 +8556,26 @@ class Order extends SubiektObj
                 __CLASS__ . '->' . __FUNCTION__,
                 __LINE__
             );
+
+            // Po domknięciu: zdejmij linki ZK z WZ (i FS jeśli jest), inaczej KFS jest zablokowane.
+            if (!empty($closure['gt_closed']) || $this->isZkFulfilledForApi() || $this->isBusinessComplete()) {
+                foreach ($issueRefs as $cleanupRef) {
+                    $cleanupRef = trim((string) $cleanupRef);
+                    if ($cleanupRef === '') {
+                        continue;
+                    }
+                    $kfsPrep = self::clearIssueZkLinksBlockingKfsSql($cleanupRef, true);
+                    if (($kfsPrep['state'] ?? '') === 'success') {
+                        Logger::getInstance()->log(
+                            'api',
+                            'finalizeOrderAfterIssueSaved: wyczyszczono linki ZK pod KFS dla '
+                                . $cleanupRef . ' scope=' . (string) ($kfsPrep['scope'] ?? '?'),
+                            __CLASS__ . '->' . __FUNCTION__,
+                            __LINE__
+                        );
+                    }
+                }
+            }
         } elseif ($hadReservation || $hasValidIssue) {
             // Częściowe WZ / bez pełnego close — dograj st_StanRez (COM bywa niespójny z tw_Stan).
             $this->syncStockReservationsAfterIssueLifecycle();
@@ -10611,7 +10874,10 @@ class Order extends SubiektObj
                     );
                     $this->syncPositionsWithProducts($products);
                     if (isset($this->orderDetail['comments'])) {
-                        $this->comments = Helper::toWin((string) $this->orderDetail['comments']);
+                        $this->comments = DocumentComments::prepareWinFromDetail(
+                            is_array($this->orderDetail) ? $this->orderDetail : array(),
+                            (string) $this->comments
+                        );
                     }
                     if (isset($this->orderDetail['reference']) && (string) $this->orderDetail['reference'] !== '') {
                         $this->reference = Helper::toWin((string) $this->orderDetail['reference']);
@@ -10621,6 +10887,8 @@ class Order extends SubiektObj
                     $this->amount = $this->orderGt->WartoscBrutto;
                     $this->orderGt->Zapisz();
                     $this->getGtObject();
+                    DocumentComments::syncToSqlIfEnabled($this->cfg, (int) $this->gt_id, (string) $this->comments);
+                    DocumentCustomField::syncToSqlIfEnabled($this->cfg, (int) $this->gt_id, (string) $this->comments);
                     $appliedProducts = true;
                 }
 
@@ -10672,10 +10940,17 @@ class Order extends SubiektObj
         }
     }
 
+    $this->comments = DocumentComments::prepareWinFromDetail(
+        is_array($this->orderDetail) ? $this->orderDetail : array(),
+        (string) $this->comments
+    );
+
     $this->setGtObject();
     $this->orderGt->Zapisz();
 
     $this->getGtObject();
+    DocumentComments::syncToSqlIfEnabled($this->cfg, (int) $this->gt_id, (string) $this->comments);
+    DocumentCustomField::syncToSqlIfEnabled($this->cfg, (int) $this->gt_id, (string) $this->comments);
     $this->is_exists = true;
 
     $reservationSync = null;
@@ -10793,26 +11068,13 @@ class Order extends SubiektObj
         $this->amount = $this->orderGt->WartoscBrutto;
         Logger::getInstance()->log('api', 'update: po Przelicz WartoscBrutto=' . $this->amount, __CLASS__ . '->' . __FUNCTION__, __LINE__);
 
-        // Pełna treść uwag z żądania (UTF-8, bez ucinania) + dopisanie nr przesyłki (bez duplikatu)
-        $comments = isset($this->orderDetail['comments']) ? (string)$this->orderDetail['comments'] : '';
-        // Usuń ewentualną istniejącą linię "Nr przesyłki: ...", żeby nie dublować przy kolejnej aktualizacji
-        $lines = preg_split('/\r\n|\r|\n/', $comments);
-        $lines = array_filter($lines, function ($line) {
-            return stripos(trim($line), 'Nr przesyłki:') !== 0;
-        });
-        $comments = trim(implode("\n", $lines));
-        if (!empty($this->orderDetail['shipment_number'])) {
-            $comments .= "\nNr przesyłki: " . trim((string)$this->orderDetail['shipment_number']);
-        }
-        // Nowa linia przed "Adres dostawy:" i "Nr przesyłki:" gdy przyszło wszystko w jednej linii
-        $comments = preg_replace('/(?<!\n)(Adres dostawy:)/u', "\n$1", $comments);
-        $comments = preg_replace('/(?<!\n)(Nr przesyłki:)/u', "\n$1", $comments);
-        // Znaki nowej linii w formacie Windows (CRLF), żeby Subiekt GT wyświetlał każdą sekcję w nowej linii
-        $comments = str_replace(["\r\n", "\r"], "\n", $comments);
-        $comments = str_replace("\n", "\r\n", $comments);
-        // Subiekt GT oczekuje ISO-8859-2 (tak jak w Helper::toWin w całym projekcie)
-        if ($comments !== '') {
-            $this->comments = Helper::toWin($comments);
+        // Pełna treść uwag z żądania (UTF-8) + dopisanie nr przesyłki (bez duplikatu)
+        $preparedComments = DocumentComments::prepareWinFromDetail(
+            is_array($this->orderDetail) ? $this->orderDetail : array(),
+            (string) $this->comments
+        );
+        if ($preparedComments !== '' || array_key_exists('comments', $this->orderDetail ?? array())) {
+            $this->comments = $preparedComments;
         }
         if (isset($this->orderDetail['reference']) && (string)$this->orderDetail['reference'] !== '') {
             $this->reference = Helper::toWin((string)$this->orderDetail['reference']);
@@ -10826,7 +11088,7 @@ class Order extends SubiektObj
         }
 
         $commentsPreview = isset($this->orderDetail['comments']) ? substr((string)$this->orderDetail['comments'], 0, 50) : '';
-        Logger::getInstance()->log('api', 'update: setGtObject (reference=' . ($this->reference ?? '') . ', comments=' . $commentsPreview . ', reservation=' . ($this->reservation ? 'tak' : 'nie') . ', shipment_number=' . (isset($this->orderDetail['shipment_number']) ? 'tak' : 'nie') . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
+        Logger::getInstance()->log('api', 'update: setGtObject (reference=' . ($this->reference ?? '') . ', comments=' . $commentsPreview . ', reservation=' . ($this->reservation ? 'tak' : 'nie') . ', shipment_number=' . (isset($this->orderDetail['shipment_number']) ? 'tak' : 'nie') . ', comments_ext=' . (DocumentComments::isExtEnabled($this->cfg) ? 'tak' : 'nie') . ')', __CLASS__ . '->' . __FUNCTION__, __LINE__);
         $this->setGtObject();
         $this->orderGt->Przelicz();
         $this->amount = $this->orderGt->WartoscBrutto;
@@ -10839,6 +11101,9 @@ class Order extends SubiektObj
             Logger::getInstance()->log('api', 'update: Zapisz() BŁĄD: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
             throw $e;
         }
+
+        DocumentComments::syncToSqlIfEnabled($this->cfg, (int) $this->gt_id, (string) $this->comments);
+        DocumentCustomField::syncToSqlIfEnabled($this->cfg, (int) $this->gt_id, (string) $this->comments);
 
         $this->getGtObject();
 
@@ -10930,6 +11195,7 @@ class Order extends SubiektObj
                         d.dok_Status as state,
                         d.dok_TerminRealizacji as date_of_delivery,
                         d.dok_Uwagi as comments,
+                        d.dok_UwagiExt as comments_ext,
                         d.dok_DataWyst as date_created,
                         k.adr_NIP as customer_tax_id,
                         k.adr_NazwaPelna as customer_name,
@@ -10952,6 +11218,15 @@ class Order extends SubiektObj
                     'message' => 'Brak danych zamówień'
                 );
             }
+
+            foreach ($data as &$row) {
+                if (!is_array($row) || isset($row['SQLSTATE'])) {
+                    continue;
+                }
+                $row['comments'] = DocumentComments::mergeRowToUtf8($row, $this->cfg);
+                unset($row['comments_ext']);
+            }
+            unset($row);
             
             return array(
                 'state' => 'success',
@@ -10994,6 +11269,7 @@ class Order extends SubiektObj
                         d.dok_Status as state,
                         d.dok_TerminRealizacji as date_of_delivery,
                         d.dok_Uwagi as comments,
+                        d.dok_UwagiExt as comments_ext,
                         d.dok_DataWyst as date_created,
                         d.dok_StatusKsieg as accounting_state,
                         k.kh_Id as customer_id,
@@ -11102,7 +11378,7 @@ class Order extends SubiektObj
                     'state' => $row['state'],
                     'accounting_state' => $row['accounting_state'],
                     'date_of_delivery' => $row['date_of_delivery'],
-                    'comments' => $row['comments'],
+                    'comments' => DocumentComments::mergeRowToUtf8($row, $this->cfg),
                     'date_created' => $row['date_created'],
                     'customer' => [
                         'id' => $row['customer_id'],

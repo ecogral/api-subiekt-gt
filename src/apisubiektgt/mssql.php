@@ -79,7 +79,12 @@ class MSSql{
 		$result = array();   
 	
 		if($data == false){
-			die( print_r( sqlsrv_errors(), true));
+			$errors = sqlsrv_errors();
+			$msg = is_array($errors) && isset($errors[0]['message'])
+				? $errors[0]['message']
+				: 'SQL query failed';
+			Logger::getInstance()->log('api_error', 'SQL query failed: ' . $msg, __CLASS__ . '->query', __LINE__);
+			throw new Exception($msg);
 		}
 		
 		while($row = sqlsrv_fetch_array( $data, SQLSRV_FETCH_ASSOC)){

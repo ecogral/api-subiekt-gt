@@ -10,6 +10,7 @@ use APISubiektGT\SubiektGT\SubiektObj;
 use APISubiektGT\SubiektGT\Product;
 use APISubiektGT\SubiektGT\Customer;
 use APISubiektGT\Helper;
+use APISubiektGT\DocumentComments;
 
 class Document extends SubiektObj
 {
@@ -685,7 +686,11 @@ class Document extends SubiektObj
         if (!$this->documentGt) {
             return false;
         }
-        $this->documentGt->Uwagi = $this->comments;
+        DocumentComments::applyToComDocument(
+            $this->documentGt,
+            (string) $this->comments,
+            DocumentComments::isExtEnabled($this->cfg)
+        );
         return true;
     }
 
@@ -820,7 +825,10 @@ class Document extends SubiektObj
         $o = $this->getDocumentById($this->gt_id);
 
         $this->reference = $o['dok_NrPelnyOryg'];
-        $this->comments = $o['dok_Uwagi'];
+        $this->comments = DocumentComments::mergeWin(
+            (string) ($o['dok_Uwagi'] ?? ''),
+            DocumentComments::isExtEnabled($this->cfg) ? (string) ($o['dok_UwagiExt'] ?? '') : ''
+        );
         $this->doc_ref = $o['dok_NrPelny'];
         $this->state = $o['dok_Status'];
         $statusEx = (int) ($o['dok_StatusEx'] ?? 0);
@@ -1108,27 +1116,18 @@ class Document extends SubiektObj
 
         // Jak w Order::update dla UTF-8; jeśli klient nie podaje `comments`, zachowujemy istniejące uwagi z GT (np. sama synchronizacja shipment_number).
         $hadCommentsKey = array_key_exists('comments', $this->documentDetail);
-        $comments = $hadCommentsKey
-            ? (string) $this->documentDetail['comments']
-            : Helper::toUtf8((string) $this->comments);
-        $lines = preg_split('/\r\n|\r|\n/', $comments);
-        $lines = array_filter($lines, function ($line) {
-            return stripos(trim($line), 'Nr przesyłki:') !== 0;
-        });
-        $comments = trim(implode("\n", $lines));
-        if (!empty($this->documentDetail['shipment_number'])) {
-            $comments .= "\nNr przesyłki: " . trim((string) $this->documentDetail['shipment_number']);
+        $preparedComments = DocumentComments::prepareWinFromDetail(
+            is_array($this->documentDetail) ? $this->documentDetail : array(),
+            (string) $this->comments
+        );
+        if ($preparedComments !== '' || $hadCommentsKey) {
+            $this->comments = $preparedComments;
         }
-        $comments = preg_replace('/(?<!\n)(Adres dostawy:)/u', "\n$1", $comments);
-        $comments = preg_replace('/(?<!\n)(Nr przesyłki:)/u', "\n$1", $comments);
-        $comments = str_replace(["\r\n", "\r"], "\n", $comments);
-        $comments = str_replace("\n", "\r\n", $comments);
-        $this->comments = Helper::toWin($comments);
 
         $commentsPreview = $hadCommentsKey ? substr((string) $this->documentDetail['comments'], 0, 50) : '(z dokumentu)';
         Logger::getInstance()->log(
             'api',
-            'Document/update: setGtObject (comments_preview=' . $commentsPreview . ', shipment_number=' . (isset($this->documentDetail['shipment_number']) ? 'tak' : 'nie') . ')',
+            'Document/update: setGtObject (comments_preview=' . $commentsPreview . ', shipment_number=' . (isset($this->documentDetail['shipment_number']) ? 'tak' : 'nie') . ', comments_ext=' . (DocumentComments::isExtEnabled($this->cfg) ? 'tak' : 'nie') . ')',
             __CLASS__ . '->' . __FUNCTION__,
             __LINE__
         );
@@ -1142,6 +1141,8 @@ class Document extends SubiektObj
             Logger::getInstance()->log('api', 'Document/update: Zapisz() BŁĄD: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
             throw $e;
         }
+
+        DocumentComments::syncToSqlIfEnabled($this->cfg, (int) $this->gt_id, (string) $this->comments);
 
         $servicesResult = null;
         $appendServices = Order::isAppendServicesRequested($this->documentDetail)
@@ -2219,6 +2220,7 @@ class Document extends SubiektObj
                     d.dok_Status,
                     d.dok_StatusKsieg,
                     d.dok_Uwagi,
+                    d.dok_UwagiExt,
                     d.dok_PrzetworzonoZKwZD,
                     k.kh_Symbol,
                     k.adr_NazwaPelna,
@@ -2257,7 +2259,7 @@ class Document extends SubiektObj
                     'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                     'status' => $row['dok_Status'],
                     'accounting_state' => $row['dok_StatusKsieg'],
-                    'comments' => $row['dok_Uwagi'],
+                    'comments' => DocumentComments::mergeRowToUtf8($row, $this->cfg, 'dok_Uwagi', 'dok_UwagiExt'),
                     'order_processing' => $row['dok_PrzetworzonoZKwZD'],
                     'customer' => [
                         'ref_id' => $row['kh_Symbol'],
@@ -2368,6 +2370,7 @@ class Document extends SubiektObj
                         d.dok_Status,
                         d.dok_StatusKsieg,
                         d.dok_Uwagi,
+                        d.dok_UwagiExt,
                         d.dok_PrzetworzonoZKwZD,
                         k.kh_Symbol,
                         k.adr_NazwaPelna,
@@ -2408,7 +2411,7 @@ class Document extends SubiektObj
                         'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                         'status' => $row['dok_Status'],
                         'accounting_state' => $row['dok_StatusKsieg'],
-                        'comments' => $row['dok_Uwagi'],
+                        'comments' => DocumentComments::mergeRowToUtf8($row, $this->cfg, 'dok_Uwagi', 'dok_UwagiExt'),
                         'order_processing' => $row['dok_PrzetworzonoZKwZD'],
                         'customer' => [
                             'ref_id' => $row['kh_Symbol'],
@@ -2536,6 +2539,7 @@ class Document extends SubiektObj
                         d.dok_Status,
                         d.dok_StatusKsieg,
                         d.dok_Uwagi,
+                        d.dok_UwagiExt,
                         d.dok_PrzetworzonoZKwZD,
                         d.dok_Typ,
                         k.kh_Symbol,
@@ -2595,7 +2599,7 @@ class Document extends SubiektObj
                     'date_of_delivery' => $this->formatDateForResponse($row['dok_TerminRealizacji']),
                     'status' => $row['dok_Status'],
                     'accounting_state' => $row['dok_StatusKsieg'],
-                    'comments' => $row['dok_Uwagi'],
+                    'comments' => DocumentComments::mergeRowToUtf8($row, $this->cfg, 'dok_Uwagi', 'dok_UwagiExt'),
                     'order_processing' => $row['dok_PrzetworzonoZKwZD'],
                     'doc_type' => $row['dok_Typ'],
                     'doc_type_name' => isset($this->doc_types[$row['dok_Typ']]) ? $this->doc_types[$row['dok_Typ']] : 'Nieznany',
@@ -2735,6 +2739,7 @@ class Document extends SubiektObj
                         d.dok_Status,
                         d.dok_StatusKsieg,
                         d.dok_Uwagi,
+                        d.dok_UwagiExt,
                         d.dok_PrzetworzonoZKwZD,
                         d.dok_KwDoZaplaty,
                         d.dok_PlatTermin,
@@ -2803,7 +2808,7 @@ class Document extends SubiektObj
                     'payment_term' => isset($row['dok_PlatTermin']) ? (($row['dok_PlatTermin'] instanceof \DateTimeInterface) ? $row['dok_PlatTermin']->format('Y-m-d') : $row['dok_PlatTermin']) : null,
                     'status' => $row['dok_Status'],
                     'accounting_state' => $row['dok_StatusKsieg'],
-                    'comments' => $row['dok_Uwagi'],
+                    'comments' => DocumentComments::mergeRowToUtf8($row, $this->cfg, 'dok_Uwagi', 'dok_UwagiExt'),
                     'order_processing' => $row['dok_PrzetworzonoZKwZD'],
                     'doc_type' => $row['dok_Typ'],
                     'doc_type_name' => 'FV',

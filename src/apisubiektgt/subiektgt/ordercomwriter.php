@@ -1654,6 +1654,11 @@ class OrderComWriter
             }
         }
 
+        // COM nie wystarcza — tw_Stan.st_StanRez trzeba dograć SQL-em.
+        $sqlSync = \APISubiektGT\MSSql::withSqlWriteFallback(function () use ($warehouseId, $productSymbols) {
+            return Order::syncStockReservationsFromOrdersSql((int) $warehouseId, false, $productSymbols);
+        });
+
         $after = Order::findStockReservationMismatchesSql($warehouseId, $productSymbols);
 
         return array(
@@ -1663,7 +1668,8 @@ class OrderComWriter
             'fixed_count' => $fixed,
             'remaining_count' => count($after),
             'remaining_items' => $after,
-            'message' => 'Zsynchronizowano rezerwacje COM dla ZK status 7/5 (otwarte z rezerwacją).',
+            'sql_stan_rez' => $sqlSync,
+            'message' => 'COM Rezerwacja + st_StanRez z SQL. Odśwież stany w GT (F5).',
         );
     }
 
@@ -1675,93 +1681,9 @@ class OrderComWriter
      */
     public static function prepareSalesInvoiceForCorrection($subiektGt, $invoiceRef, $apply = false)
     {
-        $diag = Order::diagnoseSalesInvoiceForCorrectionSql($invoiceRef);
-        if (($diag['state'] ?? '') !== 'success') {
-            return $diag;
-        }
-
-        if (empty($diag['needs_fix'])) {
-            return array_merge($diag, array(
-                'state' => 'noop',
-                'applied' => false,
-                'message' => 'Nie wykryto powiązań do naprawy — dokument wygląda na gotowy do korekty.',
-            ));
-        }
-
-        $preview = array(
-            'positions_to_clear' => $diag['zk_linked_positions'],
-            'wz_oryg_to_clear' => $diag['wz_with_zk_oryg'],
-        );
-
-        if (!$apply) {
-            return array_merge($diag, array(
-                'state' => 'preview',
-                'applied' => false,
-                'would_change' => $preview,
-                'message' => 'Podgląd — nic nie zostało zmienione.',
-            ));
-        }
-
-        $subiektGt = self::resolveSubiektGt($subiektGt);
-        if (!$subiektGt) {
-            return array(
-                'state' => 'error',
-                'invoice_ref' => $invoiceRef,
-                'message' => 'Brak połączenia COM.',
-            );
-        }
-
-        $invoiceRefResolved = (string) ($diag['invoice_ref'] ?? $invoiceRef);
-        $fsDoc = self::loadDocument($subiektGt, $invoiceRefResolved);
-        if ($fsDoc) {
-            for ($i = 1; $i <= $fsDoc->Pozycje->Liczba(); $i++) {
-                $pos = $fsDoc->Pozycje->Element($i);
-                self::trySetProperty(
-                    $pos,
-                    array('DoId', 'ObDoId', 'PozycjaZrodlowaId', 'IdPozycjiZrodlowej'),
-                    null
-                );
-            }
-            self::saveDocument($fsDoc, 'prepareSalesInvoiceForCorrection:fs');
-        }
-
-        if (!empty($diag['wz']) && is_array($diag['wz'])) {
-            foreach ($diag['wz'] as $wzRow) {
-                $wzRef = trim((string) ($wzRow['dok_NrPelny'] ?? ''));
-                if ($wzRef === '') {
-                    continue;
-                }
-                $wzDoc = self::loadDocument($subiektGt, $wzRef);
-                if (!$wzDoc) {
-                    continue;
-                }
-                self::trySetProperty(
-                    $wzDoc,
-                    array('NumerPelnyOryginalny', 'NrPelnyOryg', 'NumerOryginalny'),
-                    ''
-                );
-                for ($j = 1; $j <= $wzDoc->Pozycje->Liczba(); $j++) {
-                    $pos = $wzDoc->Pozycje->Element($j);
-                    self::trySetProperty(
-                        $pos,
-                        array('DoId', 'ObDoId', 'PozycjaZrodlowaId', 'IdPozycjiZrodlowej'),
-                        null
-                    );
-                }
-                self::saveDocument($wzDoc, 'prepareSalesInvoiceForCorrection:wz:' . $wzRef);
-            }
-        }
-
-        $after = Order::diagnoseSalesInvoiceForCorrectionSql($invoiceRefResolved);
-
-        return array(
-            'state' => 'success',
-            'invoice_ref' => $invoiceRefResolved,
-            'applied' => true,
-            'changed' => $preview,
-            'after' => $after,
-            'message' => 'Naprawiono powiązania pod korektę KFS przez COM.',
-        );
+        // COM nie czyści wiarygodnie ob_DoId — zawsze SQL (z fallbackiem przy use_com_writes_only).
+        unset($subiektGt);
+        return Order::prepareSalesInvoiceForCorrectionSql($invoiceRef, $apply);
     }
 
     /**

@@ -63,9 +63,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== '') {
                     'items' => array_slice($incompleteMag, 0, 100),
                     'message' => empty($incompleteMag)
                         ? 'IloscMag OK (Informator Ilość powinna być widoczna).'
-                        : 'ZK status 7 z IloscMag < Ilosc — Informator pokazuje Ilość=0 mimo rezerwacji.',
+                        : 'ZK status 7 z IloscMag≈0 mimo ilości na pozycji — Informator bez rezerwacji (inna JM nie jest błędem).',
                 ),
-                'message' => 'Rozjazd st_StanRez + kontrola IloscMag (Informator).',
+                'message' => 'Rozjazd st_StanRez (JM podstawowa) + kontrola IloscMag.',
             );
         } elseif ($action === 'preview_fix') {
             $result = array(

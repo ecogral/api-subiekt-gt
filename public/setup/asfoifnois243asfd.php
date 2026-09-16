@@ -2,6 +2,8 @@
 
 use APISubiektGT\Config;
 use APISubiektGT\Helper;
+use APISubiektGT\MSSql;
+use APISubiektGT\DocumentCustomField;
 
 require_once(dirname(__FILE__) . '/../init.php');
 
@@ -47,6 +49,32 @@ if (Helper::getIsset('new_api_key')) {
 	$cfg->save();
 }
 
+// Rozszerzone uwagi (dok_UwagiExt) — włącz / wyłącz bez edycji pozostałej konfiguracji
+if (Helper::getIsset('enable_comments_ext')) {
+	$cfg->setUseCommentsExt(true);
+	$cfg->save();
+}
+if (Helper::getIsset('disable_comments_ext')) {
+	$cfg->setUseCommentsExt(false);
+	$cfg->save();
+}
+
+if (Helper::getIsset('save_comments_custom_field')) {
+	$cfg->setCommentsCustomFieldName(Helper::getValue('comments_custom_field_name'));
+	$cfg->save();
+}
+if (Helper::getIsset('enable_comments_custom_field')) {
+	if ($cfg->getCommentsCustomFieldName() === '') {
+		$cfg->setCommentsCustomFieldName('Pełne uwagi');
+	}
+	$cfg->setUseCommentsCustomField(true);
+	$cfg->save();
+}
+if (Helper::getIsset('disable_comments_custom_field')) {
+	$cfg->setUseCommentsCustomField(false);
+	$cfg->save();
+}
+
 try {
 
 	$cfg_values['server'] = $cfg->getServer();
@@ -64,6 +92,18 @@ try {
 		$cfg->save();
 	}
 	$cfg_values['api_key'] = $cfg->getAPIKey();;
+	$cfg_values['use_comments_ext'] = $cfg->useCommentsExt();
+	$cfg_values['comments_custom_field_name'] = $cfg->getCommentsCustomFieldName();
+	$cfg_values['use_comments_custom_field'] = $cfg->useCommentsCustomField();
+	$cfg_values['comments_custom_fields_found'] = 0;
+	if ($cfg->getServer() !== '' && $cfg->getDatabase() !== '') {
+		MSSql::getInstance(array(
+			'UID' => $cfg->getDbUser(),
+			'PWD' => $cfg->getDbUserPass(),
+			'Database' => $cfg->getDatabase(),
+		), $cfg->getServer());
+		$cfg_values['comments_custom_fields_found'] = count(DocumentCustomField::resolveTextFields($cfg));
+	}
 } catch (Exception $e) { }
 
 //Get extensions from PHP and verify with needed to run api
@@ -157,6 +197,73 @@ foreach ($exts as $ex) {
 					?>
 				</div>
 			</div>
+			<form method="post">
+				<div class="row">
+					<div class="twleve columns">
+						<h5>Rozszerzone uwagi dokumentów</h5>
+						<p>
+							Po włączeniu długie pole <code>comments</code> jest dzielone: pierwsze 500 znaków trafia do
+							<code>dok_Uwagi</code>, reszta (do 3500) do <code>dok_UwagiExt</code>.
+							Po wyłączeniu API wraca do poprzedniego zachowania — tylko pole podstawowe (max 500 znaków),
+							bez odczytu rozszerzenia.
+						</p>
+						<p>
+							Status:
+							<?php if (!empty($cfg_values['use_comments_ext'])) { ?>
+								<strong style="color:#00A474;">WŁĄCZONE</strong>
+							<?php } else { ?>
+								<strong style="color:#666;">WYŁĄCZONE</strong> (domyślnie)
+							<?php } ?>
+						</p>
+					</div>
+				</div>
+				<div class="row">
+					<div class="one-half column">
+						<input class="button-primary" type="submit" value="Włącz rozszerzone uwagi" name="enable_comments_ext" <?php echo !empty($cfg_values['use_comments_ext']) ? 'disabled="disabled"' : ''; ?>>
+					</div>
+					<div class="one-half column">
+						<input class="button" type="submit" value="Wyłącz — tylko pole podstawowe" name="disable_comments_ext" <?php echo empty($cfg_values['use_comments_ext']) ? 'disabled="disabled"' : ''; ?>>
+					</div>
+				</div>
+			</form>
+			<form method="post">
+				<div class="row">
+					<div class="twleve columns">
+						<h5>Pole własne ZK — pełne uwagi (zakładka Własne)</h5>
+						<p>
+							Pełny tekst <code>comments</code> trafia też do rozszerzonego pola własnego na zamówieniu
+							(w Subiekcie: zakładka <strong>Własne</strong>).
+							Jedno pole tekstowe = max <strong>255</strong> znaków — dla dłuższych uwag dodaj w Subiekcie
+							kolejne pola: <em>Pełne uwagi 2</em>, <em>Pełne uwagi 3</em> itd.
+						</p>
+						<label for="comments_custom_field_name">Nazwa pola własnego (prefiks)</label>
+						<input class="u-full-width" id="comments_custom_field_name" name="comments_custom_field_name" type="text" placeholder="Pełne uwagi" value="<?php echo htmlspecialchars($cfg_values['comments_custom_field_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+						<p>
+							Status:
+							<?php if (!empty($cfg_values['use_comments_custom_field'])) { ?>
+								<strong style="color:#00A474;">WŁĄCZONE</strong>
+							<?php } else { ?>
+								<strong style="color:#666;">WYŁĄCZONE</strong>
+							<?php } ?>
+							<?php if (!empty($cfg_values['use_comments_custom_field'])) { ?>
+								— znaleziono pól w bazie: <strong><?php echo (int) ($cfg_values['comments_custom_fields_found'] ?? 0); ?></strong>
+								<?php if (empty($cfg_values['comments_custom_fields_found'])) { ?>
+									<span style="color:#FF2F01;"> (zapisz definicję pola w Subiekcie i kliknij Zapisz nazwę)</span>
+								<?php } ?>
+							<?php } ?>
+						</p>
+					</div>
+				</div>
+				<div class="row">
+					<div class="one-half column">
+						<input class="button-primary" type="submit" value="Zapisz nazwę pola" name="save_comments_custom_field">
+					</div>
+					<div class="one-half column">
+						<input class="button-primary" type="submit" value="Włącz zapis do pola własnego" name="enable_comments_custom_field" <?php echo !empty($cfg_values['use_comments_custom_field']) ? 'disabled="disabled"' : ''; ?>>
+						<input class="button" type="submit" value="Wyłącz pole własne" name="disable_comments_custom_field" <?php echo empty($cfg_values['use_comments_custom_field']) ? 'disabled="disabled"' : ''; ?>>
+					</div>
+				</div>
+			</form>
 			<form method="post">
 				<div class="row">
 					<div class="twleve columns">

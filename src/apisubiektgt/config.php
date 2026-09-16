@@ -227,6 +227,69 @@ class Config
 		return $this->id_default_attribute;
 	}
 
+	/**
+	 * Rozszerzone uwagi (dok_UwagiExt) — długie comments poza limitem 500 znaków pola podstawowego.
+	 * use_comments_ext = 1 w api-subiekt-gt.ini
+	 *
+	 * @return bool
+	 */
+	public function useCommentsExt()
+	{
+		return isset($this->use_comments_ext) && (string) $this->use_comments_ext === '1';
+	}
+
+	/**
+	 * @param bool $enabled
+	 * @return void
+	 */
+	public function setUseCommentsExt($enabled)
+	{
+		$this->use_comments_ext = $enabled ? '1' : '0';
+	}
+
+	/**
+	 * Nazwa rozszerzonego pola własnego ZK (np. „Pełne uwagi”) — zakładka Własne w Subiekcie.
+	 * Kolejne części długiego tekstu: „Pełne uwagi 2”, „Pełne uwagi 3” … (max 255 znaków / pole).
+	 *
+	 * @return string
+	 */
+	public function getCommentsCustomFieldName()
+	{
+		return isset($this->comments_custom_field_name)
+			? trim((string) $this->comments_custom_field_name)
+			: '';
+	}
+
+	/**
+	 * @return bool
+	 */
+	public function useCommentsCustomField()
+	{
+		if (isset($this->use_comments_custom_field) && (string) $this->use_comments_custom_field === '0') {
+			return false;
+		}
+
+		return $this->getCommentsCustomFieldName() !== '';
+	}
+
+	/**
+	 * @param string $name
+	 * @return void
+	 */
+	public function setCommentsCustomFieldName($name)
+	{
+		$this->comments_custom_field_name = trim((string) $name);
+	}
+
+	/**
+	 * @param bool $enabled
+	 * @return void
+	 */
+	public function setUseCommentsCustomField($enabled)
+	{
+		$this->use_comments_custom_field = $enabled ? '1' : '0';
+	}
+
 	public function save()
 	{
 		$ini_str = '';
