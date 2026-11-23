@@ -1953,8 +1953,14 @@ class Document extends SubiektObj
             ];
         }
 
+        $taxIdRaw = '';
         if (isset($this->documentDetail['tax_id']) && trim((string) $this->documentDetail['tax_id']) !== '') {
-            $taxId = $this->escapeSqlString(trim((string) $this->documentDetail['tax_id']));
+            $taxIdRaw = trim((string) $this->documentDetail['tax_id']);
+        } elseif (isset($this->documentDetail['customer_tax_id']) && trim((string) $this->documentDetail['customer_tax_id']) !== '') {
+            $taxIdRaw = trim((string) $this->documentDetail['customer_tax_id']);
+        }
+        if ($taxIdRaw !== '') {
+            $taxId = $this->escapeSqlString($taxIdRaw);
             return [
                 'where' => "k.adr_NIP = '{$taxId}'",
                 'meta' => [
@@ -2095,6 +2101,285 @@ class Document extends SubiektObj
             Logger::getInstance()->log('api', 'Błąd podczas pobierania rozrachunków klienta: ' . $e->getMessage(), __CLASS__ . '->' . __FUNCTION__, __LINE__);
             return ['state' => 'fail', 'message' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Zbiorcza lista zaległych / otwartych należności (windykacja).
+     * Jedno zapytanie SQL z paginacją — bez pozycji dokumentów i bez pętli po kontrahentach.
+     *
+     * Parametry (data):
+     * - only_unsettled (bool, domyślnie true)
+     * - only_overdue (bool, domyślnie true)
+     * - as_of_date (Y-m-d, domyślnie dziś)
+     * - page (int, domyślnie 1)
+     * - per_page (int, domyślnie 200, max 500)
+     * - customer_tax_id / tax_id (opcjonalny filtr NIP)
+     */
+    public function getOverdueSettlements()
+    {
+        $startedAt = microtime(true);
+
+        try {
+            $onlyUnsettled = $this->detailBool('only_unsettled', true);
+            $onlyOverdue = $this->detailBool('only_overdue', true);
+
+            $asOfRaw = isset($this->documentDetail['as_of_date'])
+                ? trim((string) $this->documentDetail['as_of_date'])
+                : '';
+            if ($asOfRaw === '') {
+                $asOfRaw = date('Y-m-d');
+            }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOfRaw)) {
+                throw new Exception('Nieprawidłowy as_of_date. Oczekiwany format: Y-m-d');
+            }
+            $asOfEscaped = $this->escapeSqlString($asOfRaw);
+
+            $page = isset($this->documentDetail['page']) ? (int) $this->documentDetail['page'] : 1;
+            if ($page < 1) {
+                $page = 1;
+            }
+
+            $perPage = isset($this->documentDetail['per_page'])
+                ? (int) $this->documentDetail['per_page']
+                : (isset($this->documentDetail['limit']) ? (int) $this->documentDetail['limit'] : 200);
+            if ($perPage < 1) {
+                $perPage = 200;
+            }
+            if ($perPage > 500) {
+                $perPage = 500;
+            }
+            $offset = ($page - 1) * $perPage;
+
+            $where = [
+                'Bk.nzf_Typ = 39',
+                "k.adr_NIP IS NOT NULL",
+                "LTRIM(RTRIM(k.adr_NIP)) <> ''",
+            ];
+
+            // Zawsze otwarte należności (Remaining > 0). Flaga only_unsettled zostaje w kontrakcie
+            // odpowiedzi; rozliczonych i tak nie zwracamy (CRM wymaga Remaining > 0).
+            $where[] = 'Bk.Rozliczenie IN (0, 1)';
+            $where[] = 'Bk.naleznosc > 0';
+
+            if ($onlyOverdue) {
+                // Termin płatności przed końcem as_of_date (dzień włącznie jako „dziś” = już po terminie następnego dnia).
+                $where[] = 'Bk.nzf_TerminPlatnosci IS NOT NULL';
+                $where[] = "Bk.nzf_TerminPlatnosci < DATEADD(day, 1, CAST('{$asOfEscaped}' AS date))";
+                $where[] = "DATEDIFF(day, Bk.nzf_TerminPlatnosci, CAST('{$asOfEscaped}' AS date)) > 0";
+            }
+
+            $taxIdFilter = '';
+            if (isset($this->documentDetail['customer_tax_id']) && trim((string) $this->documentDetail['customer_tax_id']) !== '') {
+                $taxIdFilter = trim((string) $this->documentDetail['customer_tax_id']);
+            } elseif (isset($this->documentDetail['tax_id']) && trim((string) $this->documentDetail['tax_id']) !== '') {
+                $taxIdFilter = trim((string) $this->documentDetail['tax_id']);
+            }
+            if ($taxIdFilter !== '') {
+                $taxIdEscaped = $this->escapeSqlString($taxIdFilter);
+                $where[] = "k.adr_NIP = '{$taxIdEscaped}'";
+            }
+
+            $whereSql = implode("\n                AND ", $where);
+
+            $fromSql = "FROM vwFinanseRozrachunkiWgDokumentow Bk
+                LEFT JOIN dok__Dokument d ON Bk.nzf_IdDokumentAuto = d.dok_Id
+                LEFT JOIN vwKlienci k ON d.dok_PlatnikId = k.kh_Id
+                LEFT JOIN fl_Wartosc FlagiWartosci ON Bk.nzf_Id = FlagiWartosci.flw_IdObiektu
+                    AND FlagiWartosci.flw_IdGrupyFlag = 1
+                LEFT JOIN fl__Flagi Flagi ON FlagiWartosci.flw_IdFlagi = Flagi.flg_Id
+                WHERE {$whereSql}";
+
+            $countSql = "SELECT COUNT(1) AS cnt {$fromSql}";
+            $countRows = MSSql::getInstance()->query($countSql);
+            $total = 0;
+            if (!empty($countRows[0]['cnt'])) {
+                $total = (int) $countRows[0]['cnt'];
+            }
+
+            $sql = "SELECT
+                    Bk.nzf_Id,
+                    Bk.nzf_NumerPelny,
+                    Bk.nzf_Data as date_issue,
+                    Bk.nzf_TerminPlatnosci as payment_term,
+                    Bk.DniSpoznienia as days_overdue,
+                    Bk.nzf_DataOstatniejSplaty as last_payment_date,
+                    Bk.naleznosc as amount_remaining,
+                    Bk.NalPierwotna as amount_original,
+                    Bk.zobowiazanie as amount_zobowiazanie,
+                    Bk.Rozliczenie as settlement_state,
+                    k.kh_Id as customer_id,
+                    k.kh_Symbol as ref_id,
+                    k.adr_NazwaPelna as company_name,
+                    k.adr_NIP as tax_id,
+                    k.adr_Adres as address,
+                    k.adr_Kod as post_code,
+                    k.adr_Miejscowosc as city,
+                    k.kh_EMail as email,
+                    k.adr_Telefon as phone,
+                    Flagi.flg_Text as flag_name,
+                    FlagiWartosci.flw_Komentarz as flag_comment
+                {$fromSql}
+                ORDER BY Bk.nzf_TerminPlatnosci ASC, Bk.nzf_Id DESC
+                OFFSET {$offset} ROWS FETCH NEXT {$perPage} ROWS ONLY";
+
+            $data = MSSql::getInstance()->query($sql);
+            $result = [];
+
+            foreach ($data as $row) {
+                $remaining = isset($row['amount_remaining']) && is_numeric($row['amount_remaining'])
+                    ? (float) $row['amount_remaining']
+                    : 0.0;
+                $original = isset($row['amount_original']) && is_numeric($row['amount_original'])
+                    ? (float) $row['amount_original']
+                    : null;
+                $paid = ($original !== null) ? max(0.0, $original - $remaining) : null;
+
+                // days_overdue względem as_of_date (spójne z filtrem), fallback do DniSpoznienia z widoku
+                $daysOverdue = null;
+                if (!empty($row['payment_term'])) {
+                    try {
+                        if ($row['payment_term'] instanceof \DateTimeInterface) {
+                            $termDt = \DateTime::createFromFormat('Y-m-d', $row['payment_term']->format('Y-m-d'));
+                        } else {
+                            $termDt = new \DateTime(is_string($row['payment_term']) ? $row['payment_term'] : (string) $row['payment_term']);
+                        }
+                        $termDt->setTime(0, 0, 0);
+                        $asOfDt = new \DateTime($asOfRaw . ' 00:00:00');
+                        $daysOverdue = (int) floor(($asOfDt->getTimestamp() - $termDt->getTimestamp()) / 86400);
+                        if ($daysOverdue < 0) {
+                            $daysOverdue = 0;
+                        }
+                    } catch (\Exception $ignore) {
+                        $daysOverdue = isset($row['days_overdue']) && is_numeric($row['days_overdue'])
+                            ? (int) $row['days_overdue']
+                            : null;
+                    }
+                } elseif (isset($row['days_overdue']) && is_numeric($row['days_overdue'])) {
+                    $daysOverdue = (int) $row['days_overdue'];
+                }
+
+                $docRef = $row['nzf_NumerPelny'];
+                $taxId = isset($row['tax_id']) ? trim((string) $row['tax_id']) : '';
+
+                $result[] = [
+                    'settlement_id' => $row['nzf_Id'],
+                    'tax_id' => $taxId,
+                    'customer_id' => $row['customer_id'],
+                    'customer_name' => $row['company_name'],
+                    'doc_ref' => $docRef,
+                    'document_number' => $docRef,
+                    'document_date' => $row['date_issue'],
+                    'date_issue' => $row['date_issue'],
+                    'payment_term' => $row['payment_term'],
+                    'due_date' => $row['payment_term'],
+                    'days_overdue' => $daysOverdue,
+                    'last_payment_date' => $row['last_payment_date'],
+                    'settlement_state' => $row['settlement_state'],
+                    // amount_liability = pozostało do zapłaty (krytyczne dla CRM)
+                    'amount_liability' => $remaining,
+                    'amount_remaining' => $remaining,
+                    'amount_total' => $original !== null ? $original : $remaining,
+                    'amount_original' => $original,
+                    'amount_paid' => $paid,
+                    'currency' => 'PLN',
+                    'amount' => [
+                        // total = pozostałe należności (kompatybilność z getSettlementsByCustomer)
+                        'total' => $remaining,
+                        'original' => $original,
+                        // liability = pozostało (CRM czyta amount.liability jako Remaining)
+                        'liability' => $remaining,
+                    ],
+                    'customer' => [
+                        'id' => $row['customer_id'],
+                        'ref_id' => $row['ref_id'],
+                        'company_name' => $row['company_name'],
+                        'tax_id' => $taxId,
+                        'address' => $row['address'],
+                        'post_code' => $row['post_code'],
+                        'city' => $row['city'],
+                        'email' => $row['email'],
+                        'phone' => $row['phone'],
+                    ],
+                    'flag' => [
+                        'name' => $row['flag_name'],
+                        'comment' => $row['flag_comment'],
+                    ],
+                ];
+            }
+
+            $elapsedMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $hasMore = ($offset + count($result)) < $total;
+            $logMsg = sprintf(
+                'getOverdueSettlements: rows=%d total=%d page=%d per_page=%d only_overdue=%s as_of=%s tax_id=%s time_ms=%d',
+                count($result),
+                $total,
+                $page,
+                $perPage,
+                $onlyOverdue ? '1' : '0',
+                $asOfRaw,
+                $taxIdFilter !== '' ? $taxIdFilter : '-',
+                $elapsedMs
+            );
+            Logger::getInstance()->log('api', $logMsg, __CLASS__ . '->' . __FUNCTION__, __LINE__);
+            if ($elapsedMs > 3000) {
+                Logger::getInstance()->log(
+                    'api',
+                    'Ostrzeżenie: getOverdueSettlements wolne (' . $elapsedMs . ' ms)',
+                    __CLASS__ . '->' . __FUNCTION__,
+                    __LINE__
+                );
+            }
+
+            return [
+                'state' => 'success',
+                'message' => 'OK',
+                'data' => [
+                    'page' => $page,
+                    'per_page' => $perPage,
+                    'total' => $total,
+                    'has_more' => $hasMore,
+                    'as_of_date' => $asOfRaw,
+                    'only_unsettled' => $onlyUnsettled,
+                    'only_overdue' => $onlyOverdue,
+                    'count' => count($result),
+                    'settlements' => $result,
+                ],
+            ];
+        } catch (Exception $e) {
+            Logger::getInstance()->log(
+                'api',
+                'Błąd getOverdueSettlements: ' . $e->getMessage(),
+                __CLASS__ . '->' . __FUNCTION__,
+                __LINE__
+            );
+            return ['state' => 'fail', 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Odczyt flagi bool z documentDetail (true/false, 1/0, "tak"/"nie").
+     */
+    protected function detailBool($key, $default = false)
+    {
+        if (!is_array($this->documentDetail) || !array_key_exists($key, $this->documentDetail)) {
+            return (bool) $default;
+        }
+        $value = $this->documentDetail[$key];
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_numeric($value)) {
+            return (int) $value !== 0;
+        }
+        $normalized = strtolower(trim((string) $value));
+        if (in_array($normalized, array('1', 'true', 'yes', 'tak', 'on'), true)) {
+            return true;
+        }
+        if (in_array($normalized, array('0', 'false', 'no', 'nie', 'off', ''), true)) {
+            return false;
+        }
+
+        return (bool) $default;
     }
 
     public function getLastOrders()

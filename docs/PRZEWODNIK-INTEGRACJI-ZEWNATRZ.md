@@ -30,6 +30,8 @@ Przykłady parametru `c`:
 | `Document/getRecentDocuments` | Dokumenty od początku bieżącego miesiąca (grupy) |
 | `Document/getLastDocuments` | Ostatnie dokumenty jednego typu |
 | `Document/getUnpaidInvoices` | Nieopłacone faktury |
+| `Document/getSettlementsByCustomer` | Rozrachunki jednego klienta (`tax_id`) |
+| `Document/getOverdueSettlements` | Zbiorcza lista zaległych należności (paginacja) |
 
 `Klasa` = nazwa PHP z pierwszą literą wielką (`Document`), `metoda` = dokładna nazwa metody.
 
@@ -174,6 +176,40 @@ Grupy `FS`, `KFS`, `WZ`, `ZK`. Filtrowanie KSeF wg daty dotyczy **FS**; pola `ks
 ### `Document/getUnpaidInvoices`
 
 Lista nieopłaconych FS z tym samym filtrem KSeF od daty odcięcia co lista FV.
+
+### `Document/getOverdueSettlements`
+
+Zbiorczy raport otwartych / zaległych **należności** (widok `vwFinanseRozrachunkiWgDokumentow`) — pod windykację i sync CRM bez odpytywania każdego NIP osobno.
+
+`data`:
+
+| Pole | Domyślnie | Opis |
+|------|-----------|------|
+| `only_unsettled` | `true` | tylko otwarte (`naleznosc > 0`) |
+| `only_overdue` | `true` | termin płatności **przed** `as_of_date` |
+| `as_of_date` | dziś (`Y-m-d`) | data odniesienia dla zaległości |
+| `page` | `1` | strona (1-based) |
+| `per_page` | `200` | rozmiar strony, **max 500** |
+| `customer_tax_id` / `tax_id` | — | opcjonalny filtr jednego NIP |
+
+Przykład żądania:
+
+```json
+{
+  "api_key": "TWÓJ_KLUCZ",
+  "data": {
+    "only_unsettled": true,
+    "only_overdue": true,
+    "as_of_date": "2026-11-23",
+    "page": 1,
+    "per_page": 200
+  }
+}
+```
+
+W odpowiedzi `data.settlements[]` m.in.: `tax_id`, `settlement_id`, `doc_ref`, `payment_term`, `days_overdue`, `amount_liability` (pozostało do zapłaty), `amount_total`, `customer_name`. Bez pozycji dokumentów (brak N+1).
+
+`getSettlementsByCustomer` pozostaje bez zmian — do ręcznego podglądu jednego klienta.
 
 ### `Document/getLastDocuments`
 
